@@ -8,6 +8,7 @@
 
 import enum
 import re
+import sys
 
 try:
     import gdb          # real module inside gdb's embedded interpreter
@@ -54,9 +55,15 @@ class BranchKind(enum.Enum):
     UNCONDITIONAL = 'unconditional'
 
 class Extractor:
-    def __init__(self, wordsize):
+    # `out` is the stream the trace itself is written to. It is passed
+    # around explicitly rather than by reassigning sys.stdout, so that
+    # anything else printing to sys.stdout from inside gdb's embedded
+    # interpreter -- e.g. a gdb plugin such as pwndbg -- cannot end up
+    # interleaved with the trace.
+    def __init__(self, wordsize, out=None):
         self.wordsize = wordsize
         self.mask = (1<<wordsize) - 1
+        self.out = out or sys.stdout
     def printHeader(self, function):
         raise NotImplementedError("Subclasses must override printHeader")
     def isBranch(self, insns, frame):
@@ -104,11 +111,11 @@ class X86_64(Extractor):
 
     def printHeader(self, function):
         frame = gdb.newest_frame()
-        print(function + ":")
+        print(function + ":", file=self.out)
         for reg in ("rdi", "rsi", "rdx", "rcx", "r8", "r9", "rsp"):
             val = int(frame.read_register(reg)) & 0xffffffffffffffff
             self.args[reg] = val
-            print("# %{0:3s} = 0x{1:x}".format(reg, val))
+            print("# %{0:3s} = 0x{1:x}".format(reg, val), file=self.out)
         self.args["cfa"] = self.args["rsp"]
         return
 
@@ -173,12 +180,12 @@ class ARM64(Extractor):
 
     def printHeader(self, function):
         frame = gdb.newest_frame()
-        print(function + ":")
+        print(function + ":", file=self.out)
         for reg in range(0,8) :
             reg = "x{0}".format(reg)
             val = int(frame.read_register(reg)) & 0xffffffffffffffff
             self.args[reg] = val
-            print("# {0} = 0x{1:x}".format(reg, val))
+            print("# {0} = 0x{1:x}".format(reg, val), file=self.out)
         val = int(frame.read_register("sp")) & 0xffffffffffffffff
         self.args["sp"] = val
         self.args["cfa"] = val
@@ -259,12 +266,12 @@ class ARM32(Extractor):
 
     def printHeader(self, function):
         frame = gdb.newest_frame()
-        print(function + ":")
+        print(function + ":", file=self.out)
         for reg in range(0,4) :
             reg = "r{0}".format(reg)
             val = int(frame.read_register(reg)) & 0xffffffff
             self.args[reg] = val
-            print("# {0} = 0x{1:x}".format(reg, val))
+            print("# {0} = 0x{1:x}".format(reg, val), file=self.out)
         val = int(frame.read_register("sp")) & 0xffffffff
         self.args["sp"] = val
         self.args["cfa"] = val
@@ -338,12 +345,12 @@ class MIPS(Extractor):
 
     def printHeader(self, function):
         frame = gdb.newest_frame()
-        print(function + ":")
+        print(function + ":", file=self.out)
         for reg in range(4,12) :
             reg = "r{0}".format(reg)
             val = int(frame.read_register(reg)) & self.mask
             self.args[reg] = val
-            print("# {0} = 0x{1:x}".format(reg, val))
+            print("# {0} = 0x{1:x}".format(reg, val), file=self.out)
         val = int(frame.read_register("sp")) & self.mask
         self.args["sp"] = val
         self.args["cfa"] = val
@@ -356,9 +363,9 @@ class MIPS(Extractor):
             mnemonic = insns[1]["asm"]
             ea = self.getEA(insns[1], frame)
             if ea:
-                print("\t{0:48s}#! EA = {1:s}".format(mnemonic, label(self.args, ea["addr"])))
+                print("\t{0:48s}#! EA = {1:s}".format(mnemonic, label(self.args, ea["addr"])), file=self.out)
             else:
-                print("\t{0:s}".format(mnemonic))
+                print("\t{0:s}".format(mnemonic), file=self.out)
         return b
 
     def isFunctionCall(self, b):
@@ -408,12 +415,12 @@ class RISCV(Extractor):
 
     def printHeader(self, function):
         frame = gdb.newest_frame()
-        print(function + ":")
+        print(function + ":", file=self.out)
         for reg in range(10,18) :
             reg = "x{0}".format(reg)
             val = int(frame.read_register(reg)) & self.mask
             self.args[reg] = val
-            print("# {0} = 0x{1:x}".format(reg, val))
+            print("# {0} = 0x{1:x}".format(reg, val), file=self.out)
         val = int(frame.read_register("sp")) & self.mask
         self.args["sp"] = val
         self.args["cfa"] = val

@@ -74,6 +74,18 @@ except NameError:
 sys.path.insert(0, os.environ["ITRACE_SCRIPT_DIR"])
 from itrace_arch import X86_64, ARM64, ARM32, MIPS, RISCV, label, BranchKind
 
+function = os.environ["TRACE_FUNCTION"]
+ea_only = "TRACE_EAONLY" in os.environ
+warn_only = "TRACE_WARN_BRANCHES" in os.environ
+
+# the trace is written to 'out' rather than to sys.stdout, so that gdb
+# plugins loaded from the user's gdbinit can't leak their own output
+# into it (see the comment on Extractor.__init__)
+if "TRACE_OUTFILE" in os.environ:
+    out = open(os.environ["TRACE_OUTFILE"], "w")
+else:
+    out = sys.stdout
+
 # figure out if platform is 32- or 64-bit and instantiate extractor,
 # all based on 'info target'...
 
@@ -92,15 +104,15 @@ if re.search(r'x86-64',mach):
     # gdbinit that prefers Intel syntax (pwndbg does) silently disable
     # all effective-address annotation
     gdb.execute("set disassembly-flavor att", to_string=True)
-    extr = X86_64(64)
+    extr = X86_64(64, out)
 elif re.search(r'aarch64',mach):
-    extr = ARM64(64)
+    extr = ARM64(64, out)
 elif re.search(r'arm',mach):
-    extr = ARM32(32)
+    extr = ARM32(32, out)
 elif re.search(r'mips',mach):
-    extr = MIPS(wordsize)
+    extr = MIPS(wordsize, out)
 elif re.search(r'riscv',mach):
-    extr = RISCV(wordsize)
+    extr = RISCV(wordsize, out)
 else:
     raise Exception("Unsupported machine type: %s" % mach)
 
@@ -112,7 +124,7 @@ def trace():
     frame = gdb.newest_frame()
     arch = frame.architecture()
 
-    print("\t#! -> SP = 0x{0:x}".format(int(frame.read_register("sp"))))
+    print("\t#! -> SP = 0x{0:x}".format(int(frame.read_register("sp"))), file=out)
     while(frame.is_valid()):
         insns = arch.disassemble(frame.pc(), count=2)	# 2nd for delay slot
         mnemonic = extr.mnemonic(insns[0])
@@ -130,12 +142,13 @@ def trace():
                           "path is not guaranteed to represent all inputs; pass "
                           "--warn-conditional-branches to continue anyway"
                           .format(int(frame.pc()), mnemonic), file=sys.stderr)
+                    out.flush()
                     sys.exit(1)
             if kind == BranchKind.RETURN:
-                print("\t#! <- SP = 0x{0:x}".format(int(frame.read_register("sp"))))
+                print("\t#! <- SP = 0x{0:x}".format(int(frame.read_register("sp"))), file=out)
             gdb.execute("stepi", to_string=True)
             debug("After stepi 1")
-            print("\t#{:s}".format(mnemonic))
+            print("\t#{:s}".format(mnemonic), file=out)
             if kind == BranchKind.CALL:     # calls are handled recursively
                 debug("Call")
                 trace()
@@ -159,12 +172,12 @@ def trace():
                     except gdb.MemoryError :
                         values.append("'?'")
                     print("\t{0:48s}#! EA = {1:s}; Value = {2}"
-                          .format(mnemonic, label(extr.args, ea["addr"]), " ".join(values)))
+                          .format(mnemonic, label(extr.args, ea["addr"]), " ".join(values)), file=out)
                 else :
                     print("\t{0:48s}#! EA = {1:s}"
-                          .format(mnemonic, label(extr.args, ea["addr"])))
+                          .format(mnemonic, label(extr.args, ea["addr"])), file=out)
             else:
-                print("\t{0:s}".format(mnemonic))
+                print("\t{0:s}".format(mnemonic), file=out)
             gdb.execute("stepi", to_string=True)
             debug("After stepi 2")
         if not frame.is_valid():      # inter-procedure branches
@@ -178,12 +191,6 @@ def trace():
     return
 
 # "main"
-if "TRACE_OUTFILE" in os.environ:
-    sys.stdout = open(os.environ["TRACE_OUTFILE"], "w")
-
-function = os.environ["TRACE_FUNCTION"]
-ea_only = "TRACE_EAONLY" in os.environ
-warn_only = "TRACE_WARN_BRANCHES" in os.environ
 
 # quirk: even though gdb.Breakpoint is documented to have pending attribute
 # it didn't work for me :-(
@@ -218,5 +225,6 @@ gdb.execute("set scheduler-locking on", to_string=True)
 
 extr.printHeader(function)
 trace()
+out.flush()
 
 gdb.execute("delete breakpoints", to_string=True)
