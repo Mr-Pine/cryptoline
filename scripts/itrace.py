@@ -88,6 +88,10 @@ else:
     wordsize = 64
 
 if re.search(r'x86-64',mach):
+    # the extractor's operand patterns are AT&T syntax, so don't let a
+    # gdbinit that prefers Intel syntax (pwndbg does) silently disable
+    # all effective-address annotation
+    gdb.execute("set disassembly-flavor att", to_string=True)
     extr = X86_64(64)
 elif re.search(r'aarch64',mach):
     extr = ARM64(64)
