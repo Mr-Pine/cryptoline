@@ -32,6 +32,11 @@ uint64_t straightline_add(uint64_t a, uint64_t b) {
 }
 
 __attribute__((noinline))
+uint64_t never_called(uint64_t a) {
+    return a * 2;
+}
+
+__attribute__((noinline))
 uint64_t branchy_max(uint64_t a, uint64_t b) {
     if (a > b) {
         return a;
@@ -100,6 +105,15 @@ ok=1
 grep -q "WARNING: conditional branch" "${TMP}/branchy_warn.log" || ok=0
 grep -q "#ret" "${TMP}/branchy_warn.trace" 2>/dev/null || ok=0
 report "exits 0, warns on the conditional branch, trace completes" "${ok}" "${TMP}/branchy_warn.log"
+
+echo "never_called (breakpoint never hit)"
+python3 "${ITRACE}" "${TMP}/fixture" never_called "${TMP}/uncalled.trace" \
+    >"${TMP}/uncalled.log" 2>&1
+exit_code=$?
+ok=1
+[[ "${exit_code}" == "1" ]] || ok=0
+grep -q "was never reached" "${TMP}/uncalled.log" || ok=0
+report "exits 1 with a clear error instead of a gdb exception" "${ok}" "${TMP}/uncalled.log"
 
 echo
 echo "----- Summary -----"
