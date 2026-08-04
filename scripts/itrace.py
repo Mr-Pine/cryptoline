@@ -185,7 +185,7 @@ warn_only = "TRACE_WARN_BRANCHES" in os.environ
 # it didn't work for me :-(
 s = gdb.execute("break *" + function, to_string=True)
 if re.search("not defined", s):             # symbol was not found
-    print(s.split("\n")[0])
+    print(s.split("\n")[0], file=sys.stderr)
     sys.exit(-1)
 
 # bypass processor capbility detection
@@ -199,6 +199,16 @@ else :
     gdb.execute("run", to_string=True)
 
 debug("After run")
+
+# if the breakpoint was never hit the program just ran to completion and
+# there is no live inferior left to trace, in which case every subsequent
+# gdb command fails with a rather cryptic complaint about the 'exec'
+# target...
+if not gdb.selected_inferior().threads():
+    print("ERROR: '{0:s}' was never reached, the program exited without "
+          "hitting the breakpoint -- make sure it is the symbol actually "
+          "executed by this run".format(function), file=sys.stderr)
+    sys.exit(1)
 
 gdb.execute("set scheduler-locking on", to_string=True)
 
