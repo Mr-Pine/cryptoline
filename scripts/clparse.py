@@ -30,6 +30,9 @@ pp_rbexps = pp.Forward()
 
 pp_nums = pp.Word(pp.nums)
 pp_nums_seq = pp.DelimitedList(pp_nums, delim=",")
+pp_number = pp.Combine(pp.Literal("0x") + pp.Word(pp.hexnums)) \
+          | pp.Combine(pp.Literal("0b") + pp.Word("01")) \
+          | pp_nums
 pp_true = pp.Keyword("true")
 pp_uint = pp.Literal("uint")
 pp_sint = pp.Literal("sint")
@@ -265,7 +268,7 @@ pp_gvars = pp.DelimitedList(pp_gvar, delim=",")
 # ========== Constants ==========
 
 pp_sca_const_exp <<= pp.infix_notation(
-  pp_nums,
+  pp_number,
   [
     (pp.Literal("-")("op"),   1, pp.opAssoc.RIGHT),
     (pp.Literal("**")("op"),  2, pp.opAssoc.LEFT),
@@ -624,6 +627,8 @@ def pp_vars_of_instr(str):
 
 if __name__ == "__main__":
   print(pp_vars_of_instr("add r x y"))
+  print(pp_vars_of_instr("mov L0x555555556020 0x1122334455667788@uint64"))
+  print(pp_vars_of_instr("and x@uint64 y 0b1011@uint64"))
   print(pp_vars_of_instr("ghost x@uint64 : x = y && x = 10@32"))
   print(pp_vars_of_instr("adds %_ %xmm0@uint32[4] %xmm11 %L0x7fffffd44a40"))
   print(pp_vars_of_instr("mov %ymm0 \
