@@ -618,7 +618,7 @@ def pp_vars_of_instr(str):
     if 'gvs' in r:
       gvs |= pp_filter_vars(vars, r["gvs"].as_list())
     is_annot = "annot" in r
-    if is_annot and r["annot"] == "ghost":
+    if is_annot and r["annot"][0] == "ghost":
       rvs = rvs - gvs
     ret = {"lvs": lvs, "rvs": rvs, "cvs": cvs, "gvs": gvs, "is-annot": is_annot}
     return ret
