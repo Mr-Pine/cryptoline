@@ -35,6 +35,9 @@ nop_instr = "nop"
 def debug(msg):
   print(msg)
 
+def warn(msg):
+  sys.stderr.write("Warning: {}\n".format(msg))
+
 class Instr:
   def __init__(self, asm, dsl):
     self.asm = asm
@@ -59,11 +62,27 @@ def flatten(vs):
 
 # Return true if the input line is a comment about translation specification
 def is_tspec_comment(line):
-  return re.match(r"^#!.*$", line)
+  return re.match(r"^\s*#!.*$", line)
 
 # Return true if the input line is an assembly comment
+# Leading whitespace is allowed: itrace.py indents the comments it emits for
+# the control flow instructions it skips over
 def is_asm_comment(line):
-  return re.match(r"^#.*$", line) and not is_tspec_comment(line)
+  return re.match(r"^\s*#.*$", line) and not is_tspec_comment(line)
+
+# Return true if the input line is an assembly comment that stands for an
+# instruction, that is, one of the control flow instructions that itrace.py
+# comments out instead of tracing into. itrace.py indents them like the
+# instructions they replace, whereas a comment describing the trace as a whole
+# starts at the beginning of a line.
+def is_skipped_instr_comment(line):
+  return is_asm_comment(line) and not re.match(r"^#", line)
+
+# Return true if the input line records the stack pointer at a function entry
+# or a function return, as emitted by itrace.py. Such a line is informational
+# and specifies no translation.
+def is_sp_annotation(line):
+  return re.match(r"^\s*(->|<-)\s*SP\s*=", line)
 
 # Return true if the input line is an empty line
 def is_empty_line(line):
@@ -172,6 +191,10 @@ def parse_rule(line):
     if idx6 != '': indices_set.add(int(idx6))
   indices = list(indices_set)
   tokens = list(map(lambda x: x.strip(), line.split("->")))
+  # An empty side would yield a rule matching every instruction, so reject it
+  if len(tokens) < 2 or tokens[0] == "" or tokens[1] == "":
+    warn("ignoring the malformed translation rule `{}`".format(line.strip()))
+    return []
   pairs = process_builtin_variables(tokens[0], tokens[1], indices)
 #  pairs = [(re.sub(r"\s+", "\\s*", lhs.replace(",", " , ").replace("\\n", "\\s*\\n\\s*")), rhs) for (lhs, rhs) in pairs]
   pairs = [(re.sub(r'\s+', 'whitespace', lhs.replace(",", " , ").replace("\\n", "\\s*\\n\\s*")).replace('whitespace', '\\s*'), rhs) for (lhs, rhs) in pairs]
@@ -181,7 +204,9 @@ def parse_rule(line):
 def parse_tspec_line(line):
   substs = []
   rules = []
-  if line.find("->") == -1:
+  if is_sp_annotation(line):
+    pass
+  elif line.find("->") == -1:
     substs += parse_subst(line)
   else:
     rules += parse_rule(line)
@@ -189,7 +214,7 @@ def parse_tspec_line(line):
 
 # Parse translation specification in a comment line
 def parse_tspec_comment(line):
-  return parse_tspec_line(re.sub(r"^#!", "", line))
+  return parse_tspec_line(re.sub(r"^\s*#!", "", line))
 
 # Constructs a tspec from a list of variable substitution rules and a list of instruction translation rules
 def mk_tspec(substs, rules):
@@ -382,6 +407,10 @@ def parse_gas(fn):
     if is_empty_line(line):
       continue
     elif is_asm_comment(line):
+      # Carry a commented out instruction over to the translation, where it
+      # stays a comment, so that the skipped control flow remains visible
+      if is_skipped_instr_comment(line):
+        instrs.append(Instr(line.strip(), nop_instr))
       continue
     elif fname == None and not instrs and is_label(line):
       fname = line.strip()
