@@ -69,6 +69,11 @@ def is_asm_comment(line):
 def is_empty_line(line):
   return re.match(r"^\s*$", line)
 
+# Return true if the input line consists of a label only, such as the function
+# name that itrace.py emits at the beginning of a trace
+def is_label(line):
+  return re.match(r"^\s*[a-zA-Z_.$][\w.$]*:\s*$", line)
+
 def split_address(addr):
   match = re.search(address_offset_group_pattern, addr)
   if match:
@@ -363,6 +368,8 @@ def translate_instrs(tspec, instrs):
   return [instr for instr in instrs if instr.asm != ""]
 
 # Parse a gas file
+# Returns the name of the traced function (if the file starts with a label),
+# the translation specification, and the instructions
 def parse_gas(fn):
   lines = [line.rstrip("\r\n").rstrip('\n') for line in open(fn)]
   instrs = []
@@ -370,11 +377,14 @@ def parse_gas(fn):
   rules = []
   substs_set = set()
   rules_set = set()
+  fname = None
   for line in lines:
     if is_empty_line(line):
       continue
     elif is_asm_comment(line):
       continue
+    elif fname == None and not instrs and is_label(line):
+      fname = line.strip()
     elif is_tspec_comment(line):
       (line_substs, line_rules) = parse_tspec_comment(line)
       for k, v in line_substs:
@@ -393,7 +403,7 @@ def parse_gas(fn):
       if local_subst_comment:
         for subst in parse_subst(local_subst_comment.group(1)):
           instr.addSubst(subst)
-  return (sort_tspec(mk_tspec(substs, rules)), instrs)
+  return (fname, sort_tspec(mk_tspec(substs, rules)), instrs)
 
 def print_instrs(instrs, pasm=True):
   for instr in instrs:
@@ -453,7 +463,7 @@ def main():
 
   # Read gas file
   if verbose: t1 = process_time()
-  (tspec, instrs) = parse_gas(args.gas_file)
+  (fname, tspec, instrs) = parse_gas(args.gas_file)
   if verbose: t2 = process_time()
   if verbose: sys.stderr.write("Time in reading gas file: {}\n".format(t2 - t1))
 
@@ -485,6 +495,7 @@ def main():
 
 
   # Output translation result
+  if fname != None: print ("(* %s *)" % fname)
   if not args.nomain:
     # Calculate program inputs
     if verbose: t1 = process_time()
