@@ -1,10 +1,10 @@
 #!/bin/bash
 #
-# End-to-end test for itrace.py's conditional-branch detection: builds a
-# couple of tiny C fixtures, traces them under real gdb, and checks the
-# error/warning behavior around conditional branches. Complements
-# test_itrace_arch.py, which only tests the pure classification logic
-# against synthetic instruction strings and never touches gdb.
+# End-to-end test for itrace.py's conditional-branch detection and its
+# handling of .rodata: builds a couple of tiny C fixtures, traces them under
+# real gdb, and checks the resulting errors, warnings and annotations.
+# Complements test_itrace_arch.py, which only tests the pure classification
+# logic against synthetic instruction strings and never touches gdb.
 #
 # Needs gdb (or gdb-multiarch) and gcc on $PATH.
 
@@ -44,10 +44,20 @@ uint64_t branchy_max(uint64_t a, uint64_t b) {
     return b;
 }
 
+const uint64_t table[2] = { 0x1122334455667788ULL, 0xdeadbeefULL };
+
+// the table is reached through a pointer, so that the compiler cannot fold
+// the loads away and they stay in the trace
+__attribute__((noinline))
+uint64_t rodata_sum(uint64_t a, const uint64_t *t) {
+    return a + t[0] + t[1];
+}
+
 int main(void) {
     volatile uint64_t r1 = straightline_add(3, 4);
     volatile uint64_t r2 = branchy_max(3, 4);
-    return (int)(r1 + r2);
+    volatile uint64_t r3 = rodata_sum(1, table);
+    return (int)(r1 + r2 + r3);
 }
 EOF
 
@@ -105,6 +115,32 @@ ok=1
 grep -q "WARNING: conditional branch" "${TMP}/branchy_warn.log" || ok=0
 grep -q "#ret" "${TMP}/branchy_warn.trace" 2>/dev/null || ok=0
 report "exits 0, warns on the conditional branch, trace completes" "${ok}" "${TMP}/branchy_warn.log"
+
+echo "rodata_sum, default flags"
+python3 "${ITRACE}" "${TMP}/fixture" rodata_sum "${TMP}/rodata.trace" \
+    >"${TMP}/rodata.log" 2>&1
+exit_code=$?
+ok=1
+[[ "${exit_code}" == "0" ]] || ok=0
+grep -q "WARNING: moving values read from .rodata" "${TMP}/rodata.log" || ok=0
+grep -q "Segment = .rodata" "${TMP}/rodata.trace" 2>/dev/null || ok=0
+# the values of both table entries are moved into the trace, along with the
+# rule that translates such a move
+grep -q "^#! rodata_mov64 " "${TMP}/rodata.trace" 2>/dev/null || ok=0
+grep -q "rodata_mov64 0x1122334455667788," "${TMP}/rodata.trace" 2>/dev/null || ok=0
+grep -q "rodata_mov64 0x00000000deadbeef," "${TMP}/rodata.trace" 2>/dev/null || ok=0
+report "moves the .rodata values into the trace and warns about it" "${ok}" "${TMP}/rodata.log"
+
+echo "rodata_sum, --no-rodata-values"
+python3 "${ITRACE}" "${TMP}/fixture" rodata_sum "${TMP}/rodata_off.trace" \
+    --no-rodata-values >"${TMP}/rodata_off.log" 2>&1
+exit_code=$?
+ok=1
+[[ "${exit_code}" == "0" ]] || ok=0
+grep -q "WARNING:" "${TMP}/rodata_off.log" && ok=0
+grep -q "rodata_mov" "${TMP}/rodata_off.trace" 2>/dev/null && ok=0
+grep -q "Segment = .rodata" "${TMP}/rodata_off.trace" 2>/dev/null || ok=0
+report "leaves the .rodata values alone, still annotating the segment" "${ok}" "${TMP}/rodata_off.log"
 
 echo "never_called (breakpoint never hit)"
 python3 "${ITRACE}" "${TMP}/fixture" never_called "${TMP}/uncalled.trace" \
