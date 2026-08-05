@@ -603,8 +603,6 @@ def pp_vars_of_instr(str):
   global collected_vars
   collected_vars = set()
   try:
-    # as_list(), as as_dict() turns a named sub-expression into a dict and
-    # hides the tokens it is made of
     r = pp_instr_nos.parse_string(str, parse_all=True)
     lvs = set()
     rvs = set()
