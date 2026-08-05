@@ -4,7 +4,8 @@
 # per-instruction execution trace for first invocation of named
 # function [and its descendants]. It also annotates instructions
 # that reference memory [as well as "lea"] with actual effective
-# addresses... It's even possible to "cross-trace" emulated target,
+# addresses and the memory segment each address falls in [".bss",
+# "[stack]", ...]... It's even possible to "cross-trace" emulated target,
 # e.g.:
 #
 #   qemu-arm -g 1234 a.out &
@@ -72,7 +73,7 @@ except NameError:
 # this part is executed in gdb context and that's where it all happens...
 
 sys.path.insert(0, os.environ["ITRACE_SCRIPT_DIR"])
-from itrace_arch import X86_64, ARM64, ARM32, MIPS, RISCV, label, BranchKind
+from itrace_arch import X86_64, ARM64, ARM32, MIPS, RISCV, ea_annotation, BranchKind
 
 function = os.environ["TRACE_FUNCTION"]
 ea_only = "TRACE_EAONLY" in os.environ
@@ -164,6 +165,7 @@ def trace():
         else:
             ea = extr.getEA(insns[0], frame)
             if ea :
+                annotation = ea_annotation(extr.args, ea["addr"])
                 if ea.get("load") and not ea_only :
                     values = []
                     try :
@@ -171,11 +173,8 @@ def trace():
                         values.extend(re.findall(r'(0[xX][0-9a-fA-F]+\b)(?!(?:\s+<.*>)?:)', value))
                     except gdb.MemoryError :
                         values.append("'?'")
-                    print("\t{0:48s}#! EA = {1:s}; Value = {2}"
-                          .format(mnemonic, label(extr.args, ea["addr"]), " ".join(values)), file=out)
-                else :
-                    print("\t{0:48s}#! EA = {1:s}"
-                          .format(mnemonic, label(extr.args, ea["addr"])), file=out)
+                    annotation += "; Value = {0}".format(" ".join(values))
+                print("\t{0:48s}#! {1:s}".format(mnemonic, annotation), file=out)
             else:
                 print("\t{0:s}".format(mnemonic), file=out)
             gdb.execute("stepi", to_string=True)
