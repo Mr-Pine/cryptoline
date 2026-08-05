@@ -14,7 +14,9 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from itrace_arch import X86_64, ARM64, ARM32, MIPS, RISCV, BranchKind
+import itrace_arch
+from itrace_arch import X86_64, ARM64, ARM32, MIPS, RISCV, BranchKind, \
+                        MemoryMap, ea_annotation, segment
 
 
 def insns(asm):
@@ -156,6 +158,72 @@ class RISCVBranchTest(unittest.TestCase):
         asm = "beq    a0,a1,0x1030"
         b = self.extr.isBranch(insns(asm), None)
         self.assertEqual(self.extr.branch_kind(insns(asm), b), BranchKind.CONDITIONAL)
+
+
+class MemoryMapTest(unittest.TestCase):
+    SECTIONS = """\
+Exec file: `/tmp/seg', file type elf64-x86-64.
+ [11]     0x555555555000->0x55555555501b at 0x00001000: .init ALLOC LOAD READONLY CODE HAS_CONTENTS
+ [15]     0x555555555080->0x55555555522a at 0x00001080: .text ALLOC LOAD READONLY CODE HAS_CONTENTS
+ [17]     0x555555556000->0x555555556004 at 0x00002000: .rodata ALLOC LOAD READONLY DATA HAS_CONTENTS
+ [24]     0x555555558000->0x555555558018 at 0x00003000: .data ALLOC LOAD DATA HAS_CONTENTS
+ [25]     0x555555558018->0x555555558028 at 0x00003018: .bss ALLOC
+ [26]     0x0000000000->0x000000002b at 0x00003018: .comment READONLY HAS_CONTENTS
+Object file: /usr/lib/x86_64-linux-gnu/libc.so.6
+ [17]     0x00007ffff7c28000->0x00007ffff7db0000 at 0x00028000: .text ALLOC LOAD READONLY CODE HAS_CONTENTS
+"""
+    MAPPINGS = """\
+process 433194
+Mapped address spaces:
+
+Start Addr         End Addr           Size               Offset             Perms File\x20
+0x0000555555554000 0x0000555555555000 0x1000             0x0                r--p  /tmp/seg\x20
+0x0000555555559000 0x000055555557a000 0x21000            0x0                rw-p  [heap]\x20
+0x00007ffff7c28000 0x00007ffff7db0000 0x188000           0x28000            r-xp  /usr/lib/x86_64-linux-gnu/libc.so.6\x20
+0x00007ffff7e05000 0x00007ffff7e12000 0xd000             0x0                rw-p  \x20
+0x00007ffffffde000 0x00007ffffffff000 0x21000            0x0                rw-p  [stack]\x20
+"""
+
+    def setUp(self):
+        self.map = MemoryMap()
+        self.map.sections = MemoryMap.parse_sections(self.SECTIONS)
+        self.map.mappings = MemoryMap.parse_mappings(self.MAPPINGS)
+        self.map.loaded = True
+
+    def test_sections_win_over_mappings(self):
+        # both sources cover this address, the section is the finer answer
+        self.assertEqual(self.map.lookup(0x555555554000 + 0x1100), ".text")
+
+    def test_section_boundaries(self):
+        self.assertEqual(self.map.lookup(0x555555558018), ".bss")
+        self.assertEqual(self.map.lookup(0x555555558027), ".bss")
+        self.assertEqual(self.map.lookup(0x555555558017), ".data")
+
+    def test_non_alloc_sections_are_ignored(self):
+        self.assertIsNone(self.map.find(self.map.sections, 0x10))
+
+    def test_mappings(self):
+        self.assertEqual(self.map.lookup(0x7ffffffde000), "[stack]")
+        self.assertEqual(self.map.lookup(0x555555560000), "[heap]")
+        # a bare ".text" is always the executable's own
+        self.assertEqual(self.map.lookup(0x7ffff7c28100), "libc.so.6:.text")
+        self.assertEqual(self.map.lookup(0x7ffff7e05000), "anon")
+        self.assertEqual(self.map.lookup(0x555555554100), "seg")
+
+    def test_unknown_address(self):
+        # without gdb the re-read of the map yields nothing
+        self.assertIsNone(self.map.lookup(0x1234))
+        self.assertIn(0x1234 >> 12, self.map.unmapped)
+        self.assertEqual(segment(0x1234), "?")
+
+    def test_annotation(self):
+        args = {"rsp": 0x7fffffffe000, "cfa": 0x7fffffffe000}
+        itrace_arch.memory_map = self.map
+        try:
+            self.assertEqual(ea_annotation(args, 0x7fffffffe008),
+                             "EA = Lrsp_0x008; Segment = [stack]")
+        finally:
+            itrace_arch.memory_map = MemoryMap()
 
 
 if __name__ == "__main__":

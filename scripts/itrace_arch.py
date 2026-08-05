@@ -6,7 +6,9 @@
 # gdb or immediately calls gdb.execute(...), so it can't be imported
 # directly).
 
+import bisect
 import enum
+import os
 import re
 import sys
 
@@ -47,6 +49,122 @@ def label(args, address):
             return "Lcfa_0x{:03x}".format(offset)
 
     return "L" + hex(address)
+
+class MemoryMap:
+    # Which segment an address is in, according to "maintenance info sections"
+    # (ELF sections of the executable, e.g. ".rodata") and, for everything
+    # outside them, "info proc mappings" ("[stack]", "libc.so.6", ...).
+    # Neither is available on every target: a bare gdbstub such as qemu's
+    # supports no "info proc", and a lookup then simply finds nothing.
+
+    # " [15]     0x555555555080->0x55555555522a at 0x00001080: .text ALLOC LOAD READONLY CODE HAS_CONTENTS"
+    sectionpattern = re.compile(r'^\s*\[\s*\d+\]\s+'
+                                r'(0x[0-9a-fA-F]+)->(0x[0-9a-fA-F]+)'
+                                r'\s+at\s+0x[0-9a-fA-F]+:'
+                                r'\s+(\S+)\s+(.*?)\s*$')
+    # "Exec file: `/tmp/seg', file type elf64-x86-64." -- the sections that
+    # follow belong to that file
+    objfilepattern = re.compile(r'^\s*(Exec|Object|Core) file:\s*[`\'"]?([^`\'",]+)')
+    # "      0x555555559000     0x55555557a000    0x21000        0x0  rw-p   [heap]",
+    # with the permissions column absent on some targets and the file name
+    # empty for anonymous mappings
+    mappingpattern = re.compile(r'^\s*(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+)'
+                                r'\s+0x[0-9a-fA-F]+\s+0x[0-9a-fA-F]+'
+                                r'(?:\s+([-rwxpsSD]{4}))?'
+                                r'\s*(.*?)\s*$')
+
+    def __init__(self):
+        self.sections = []      # sorted [(start, end, name)] of the executable
+        self.mappings = []      # sorted [(start, end, name)] of the address space
+        self.unmapped = set()   # pages that a re-read of the map didn't explain
+        self.loaded = False
+
+    def query(self, command):
+        if gdb is None:         # not running under gdb, e.g. under unit tests
+            return ""
+        try:
+            return gdb.execute(command, to_string=True)
+        except gdb.error as e:  # command unsupported by the target
+            debug("'{}' failed: {}".format(command, e))
+            return ""
+
+    @staticmethod
+    def name(path):
+        if not path:
+            return "anon"
+        if not path.startswith("["):    # "[stack]" and friends stay verbatim
+            path = os.path.basename(path)
+        # ';' and '=' separate the annotations this name ends up in
+        return re.sub(r'[\s;=]', '_', path)
+
+    @classmethod
+    def parse_sections(cls, text):
+        ranges = []
+        objfile = ""            # sections of the executable need no prefix
+        for line in text.splitlines():
+            header = cls.objfilepattern.match(line)
+            if header:
+                objfile = "" if header.group(1) == "Exec" \
+                             else cls.name(header.group(2)) + ":"
+                continue
+            m = cls.sectionpattern.match(line)
+            # a section without ALLOC occupies no memory, and its nominal
+            # address would shadow a real one
+            if m and "ALLOC" in m.group(4).split():
+                ranges.append((int(m.group(1), 16), int(m.group(2), 16),
+                               objfile + cls.name(m.group(3))))
+        return sorted(ranges)
+
+    @classmethod
+    def parse_mappings(cls, text):
+        ranges = []
+        for line in text.splitlines():
+            m = cls.mappingpattern.match(line)
+            if m:
+                ranges.append((int(m.group(1), 16), int(m.group(2), 16),
+                               cls.name(m.group(4))))
+        return sorted(ranges)
+
+    @staticmethod
+    def find(ranges, address):
+        i = bisect.bisect_right(ranges, (address, float("inf"))) - 1
+        if i >= 0 and address < ranges[i][1]:
+            return ranges[i][2]
+        return None
+
+    def load(self):
+        self.sections = self.parse_sections(self.query("maintenance info sections"))
+        self.mappings = self.parse_mappings(self.query("info proc mappings"))
+        self.loaded = True
+
+    def lookup(self, address):
+        if not self.loaded:
+            self.load()
+        name = self.find(self.sections, address) \
+               or self.find(self.mappings, address)
+        if name:
+            return name
+        # the map is re-read only for an address outside everything known so
+        # far, as the stack and the heap grow and mmap() adds regions. A page
+        # a fresh map still doesn't explain is remembered, so that it costs
+        # one query rather than one per instruction.
+        page = address >> 12
+        if page in self.unmapped:
+            return None
+        self.mappings = self.parse_mappings(self.query("info proc mappings"))
+        name = self.find(self.mappings, address)
+        if not name:
+            self.unmapped.add(page)
+        return name
+
+memory_map = MemoryMap()
+
+def segment(address):
+    return memory_map.lookup(address) or "?"
+
+def ea_annotation(args, address):
+    return "EA = {0:s}; Segment = {1:s}".format(label(args, address),
+                                                segment(address))
 
 class BranchKind(enum.Enum):
     CALL = 'call'
@@ -363,7 +481,7 @@ class MIPS(Extractor):
             mnemonic = insns[1]["asm"]
             ea = self.getEA(insns[1], frame)
             if ea:
-                print("\t{0:48s}#! EA = {1:s}".format(mnemonic, label(self.args, ea["addr"])), file=self.out)
+                print("\t{0:48s}#! {1:s}".format(mnemonic, ea_annotation(self.args, ea["addr"])), file=self.out)
             else:
                 print("\t{0:s}".format(mnemonic), file=self.out)
         return b
