@@ -31,8 +31,9 @@ To compile and run CryptoLine, the following packages need to be installed.
   + [Macaulay2](https://faculty.math.illinois.edu/Macaulay2/)
   + [Maple](https://www.maplesoft.com)
 - One of the following SMT solvers:
-  + [Boolector](https://boolector.github.io) (recommended, the default to be
+  + [Bitwuzla](https://bitwuzla.github.io/) (recommended, the default to be
     used)
+  + [Boolector](https://boolector.github.io)
   + [Z3](https://github.com/Z3Prover/z3)
   + [Mathsat](http://mathsat.fbk.eu)
 - [abc](http://people.eecs.berkeley.edu/~alanmi/abc/abc.htm) for equivalence
