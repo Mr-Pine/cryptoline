@@ -39,10 +39,13 @@ def warn(msg):
   sys.stderr.write("Warning: {}\n".format(msg))
 
 class Instr:
-  def __init__(self, asm, dsl):
+  def __init__(self, asm, dsl, lineno=None):
     self.asm = asm
     self.dsl = dsl
+    self.lineno = lineno
     self.substs = []
+    # Set when a translation rule is applied to this instruction
+    self.translated = False
   # Add local substitutions applicable only to this instruction
   def addSubst(self, subst):
     self.substs.append(subst)
@@ -366,6 +369,7 @@ def translate_instrs(tspec, instrs):
     if skip > 0:
       instr.asm = ""
       instr.dsl = nop_instr
+      instr.translated = True
       skip = skip - 1
       continue
     for lhs, rhs in rules.items():
@@ -387,6 +391,7 @@ def translate_instrs(tspec, instrs):
           instr.dsl = res
         else:
           instr.dsl = res
+        instr.translated = True
         # Do some computation
         compute(instr)
         break
@@ -403,14 +408,14 @@ def parse_gas(fn):
   substs_set = set()
   rules_set = set()
   fname = None
-  for line in lines:
+  for lineno, line in enumerate(lines, start=1):
     if is_empty_line(line):
       continue
     elif is_asm_comment(line):
       # Carry a commented out instruction over to the translation, where it
       # stays a comment, so that the skipped control flow remains visible
       if is_skipped_instr_comment(line):
-        instrs.append(Instr(line.strip(), nop_instr))
+        instrs.append(Instr(line.strip(), nop_instr, lineno))
       continue
     elif fname == None and not instrs and is_label(line):
       fname = line.strip()
@@ -426,13 +431,26 @@ def parse_gas(fn):
           rules.append((k, v))
     else:
       line = line.strip()
-      instr = Instr(line, line)
+      instr = Instr(line, line, lineno)
       instrs.append(instr)
       local_subst_comment = re.search('#!(.*?)$', line)
       if local_subst_comment:
         for subst in parse_subst(local_subst_comment.group(1)):
           instr.addSubst(subst)
   return (fname, sort_tspec(mk_tspec(substs, rules)), instrs)
+
+# Warn about instructions that no translation rule matches. Such instructions
+# are copied verbatim to the output, which is thus most likely not a valid
+# CryptoLine program.
+def warn_untranslated(fn, instrs):
+  # An instruction that is literally "nop" needs no rule: it already produces
+  # a comment and no CryptoLine statement
+  untranslated = [instr for instr in instrs if not instr.translated and instr.dsl != nop_instr]
+  for instr in untranslated:
+    location = "{}:{}".format(fn, instr.lineno) if instr.lineno else fn
+    warn("{}: no translation rule matches `{}`".format(location, instr.asm))
+  if untranslated:
+    warn("{} of {} instructions could not be translated and are left as they are.".format(len(untranslated), len(instrs)))
 
 def print_instrs(instrs, pasm=True):
   for instr in instrs:
@@ -521,6 +539,7 @@ def main():
   instrs = translate_instrs(tspec, instrs)
   if verbose: t2 = process_time()
   if verbose: sys.stderr.write("Time in translation: {}\n".format(t2 - t1))
+  warn_untranslated(args.gas_file, instrs)
 
 
   # Output translation result
