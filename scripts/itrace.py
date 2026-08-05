@@ -5,7 +5,9 @@
 # function [and its descendants]. It also annotates instructions
 # that reference memory [as well as "lea"] with actual effective
 # addresses and the memory segment each address falls in [".bss",
-# "[stack]", ...]... It's even possible to "cross-trace" emulated target,
+# "[stack]", ...]. Values read from ".rodata" are moved into the trace
+# as constants unless --no-rodata-values says otherwise... It's even
+# possible to "cross-trace" emulated target,
 # e.g.:
 #
 #   qemu-arm -g 1234 a.out &
@@ -32,7 +34,7 @@ try:
     gdb             # gdb module is pre-loaded in gdb context
 except NameError:
     if len(sys.argv) < 3 or not os.access(sys.argv[1], os.X_OK):
-        print("Usage: {0:s} executable function [remote-target] [output] [--warn-conditional-branches] [-- args]".format(sys.argv[0]))
+        print("Usage: {0:s} executable function [remote-target] [output] [--warn-conditional-branches] [--no-rodata-values] [-- args]".format(sys.argv[0]))
         sys.exit(-1)
 
     prog = [sys.argv[1]]
@@ -44,6 +46,9 @@ except NameError:
     if "--warn-conditional-branches" in argv:
         argv.remove("--warn-conditional-branches")
         os.environ["TRACE_WARN_BRANCHES"] = "1"
+    if "--no-rodata-values" in argv:
+        argv.remove("--no-rodata-values")
+        os.environ["TRACE_NO_RODATA_VALUES"] = "1"
     if len(argv) > 0 and re.match(r'/dev/|:', argv[0]):
         os.environ["TRACE_TARGET_REMOTE"] = argv.pop(0)
     if len(argv) > 0 and argv[0] != "--":
@@ -73,11 +78,13 @@ except NameError:
 # this part is executed in gdb context and that's where it all happens...
 
 sys.path.insert(0, os.environ["ITRACE_SCRIPT_DIR"])
-from itrace_arch import X86_64, ARM64, ARM32, MIPS, RISCV, ea_annotation, BranchKind
+from itrace_arch import X86_64, ARM64, ARM32, MIPS, RISCV, \
+                        ea_annotation, label, segment, BranchKind
 
 function = os.environ["TRACE_FUNCTION"]
 ea_only = "TRACE_EAONLY" in os.environ
 warn_only = "TRACE_WARN_BRANCHES" in os.environ
+rodata_values = "TRACE_NO_RODATA_VALUES" not in os.environ
 
 # the trace is written to 'out' rather than to sys.stdout, so that gdb
 # plugins loaded from the user's gdbinit can't leak their own output
@@ -120,6 +127,44 @@ else:
 def debug(msg):
     if debug_flag:
         print("DEBUG: {}".format(msg))
+
+# the count and the unit size of a load, as the extractors spell it for
+# gdb's "x" command, e.g. "4xg"
+loadpattern = re.compile(r'(\d+)x([bhwg])')
+loadwidths = {"b": 8, "h": 16, "w": 32, "g": 64}
+
+rodata_rules = set()        # widths a translation rule was emitted for
+rodata_known = {}           # values already moved into the trace, by address
+
+def isRodata(name):
+    # ".rodata", but also ".rodata.cst8" and a shared library's "lib.so:.rodata"
+    return name.split(":")[-1].startswith(".rodata")
+
+def print_rodata_values(args, addr, fmt, values):
+    # Move what the next instruction reads from .rodata into the trace, so
+    # that it is a constant there rather than an unconstrained input. Nothing
+    # stops a program from writing to .rodata, hence the warning.
+    load = loadpattern.match(fmt)
+    if not load or not all(v.startswith("0x") for v in values):
+        return
+    width = loadwidths[load.group(2)]
+    for i, value in enumerate(values):
+        address = addr + i * width // 8
+        if rodata_known.get(address) == value:
+            continue
+        if not rodata_known:
+            print("# WARNING: moving values read from .rodata into the trace, "
+                  "which assumes that section really is constant; pass "
+                  "--no-rodata-values to treat them as inputs instead",
+                  file=sys.stderr)
+        rodata_known[address] = value
+        if width not in rodata_rules:
+            rodata_rules.add(width)
+            print("#! rodata_mov{0:d} $1c, $2v -> mov $2v $1c@uint{0:d}"
+                  .format(width), file=out)
+        insn = "rodata_mov{0:d} {1:s},%%{2:s}".format(width, value,
+                                                      label(args, address))
+        print("\t{0:48s}# .rodata at 0x{1:x}".format(insn, address), file=out)
 
 def trace():
     frame = gdb.newest_frame()
@@ -173,6 +218,8 @@ def trace():
                         values.extend(re.findall(r'(0[xX][0-9a-fA-F]+\b)(?!(?:\s+<.*>)?:)', value))
                     except gdb.MemoryError :
                         values.append("'?'")
+                    if rodata_values and isRodata(segment(ea["addr"])) :
+                        print_rodata_values(extr.args, ea["addr"], ea["load"], values)
                     annotation += "; Value = {0}".format(" ".join(values))
                 print("\t{0:48s}#! {1:s}".format(mnemonic, annotation), file=out)
             else:
@@ -230,5 +277,9 @@ gdb.execute("set scheduler-locking on", to_string=True)
 extr.printHeader(function)
 trace()
 out.flush()
+
+if rodata_known:
+    print("# WARNING: {0:d} .rodata location(s) were moved into the trace"
+          .format(len(rodata_known)), file=sys.stderr)
 
 gdb.execute("delete breakpoints", to_string=True)
