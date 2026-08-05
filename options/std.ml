@@ -405,7 +405,7 @@ let check_eq_first = ref false
 
 (** Range-Specific Options *)
 
-let default_range_solver = "boolector"
+let default_range_solver = "bitwuzla"
 
 let range_solver = ref default_range_solver
 
