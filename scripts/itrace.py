@@ -202,6 +202,11 @@ if re.search("not defined", s):             # symbol was not found
 # bypass processor capbility detection
 gdb.execute("handle SIGILL nostop", to_string=True)
 
+# quirk: Without this, gdb tries to print a value that is null,
+# failing an assertion. Since we don't need that value,
+# we can ignore this.
+gdb.execute("set print frame-arguments none", to_string=True)
+
 if "TRACE_TARGET_REMOTE" in os.environ:
     gdb.execute("target remote " + os.environ["TRACE_TARGET_REMOTE"],
                 to_string=True)
