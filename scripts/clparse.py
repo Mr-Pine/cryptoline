@@ -603,20 +603,22 @@ def pp_vars_of_instr(str):
   global collected_vars
   collected_vars = set()
   try:
-    r = pp_instr_nos.parse_string(str, parse_all=True).as_dict()
+    # as_list(), as as_dict() turns a named sub-expression into a dict and
+    # hides the tokens it is made of
+    r = pp_instr_nos.parse_string(str, parse_all=True)
     lvs = set()
     rvs = set()
     cvs = set()
     gvs = set()
     vars = collected_vars
     if 'lvs' in r:
-      lvs |= pp_filter_vars(vars, r["lvs"])
+      lvs |= pp_filter_vars(vars, r["lvs"].as_list())
     if 'rvs' in r:
-      rvs |= pp_filter_vars(vars, r["rvs"])
+      rvs |= pp_filter_vars(vars, r["rvs"].as_list())
     if 'cvs' in r:
-      cvs |= pp_filter_vars(vars, r["cvs"])
+      cvs |= pp_filter_vars(vars, r["cvs"].as_list())
     if 'gvs' in r:
-      gvs |= pp_filter_vars(vars, r["gvs"])
+      gvs |= pp_filter_vars(vars, r["gvs"].as_list())
     is_annot = "annot" in r
     if is_annot and r["annot"] == "ghost":
       rvs = rvs - gvs
