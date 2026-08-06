@@ -349,24 +349,24 @@ pp_actuals = pp_actual_atoms + pp.Opt(pp_semicolon + pp_actual_atoms)
 pp_eeq_suffix = \
   pp_lparen + pp_mod + pp_eexp + pp_rparen
 pp_eexp <<= \
-    pp_eexp_primary \
-  | pp_eexp_primary + pp_lsquare + pp_nums + pp_rsquare \
-  | pp_neg + pp_eexp_primary \
+    pp_neg + pp_eexp_primary \
   | pp_add + pp_eexp_primary + pp_eexp_primary \
   | pp_sub + pp_eexp_primary + pp_eexp_primary \
   | pp_mul + pp_eexp_primary + pp_eexp_primary \
   | pp_sq + pp_eexp_primary + pp_eexp_primary \
   | pp_adds + pp_lsquare + pp_eexps + pp_rsquare \
   | pp_muls + pp_lsquare + pp_eexps + pp_rsquare \
+  | pp_ulimbs + pp_const_exp + pp_lsquare + pp_eexps + pp_rsquare \
+  | pp_poly + pp_eexp + pp_lsquare + pp_eexps + pp_rsquare \
   | pp_op_sub + pp_eexp \
+  | pp_eexp_primary + pp_op_pow + pp_lsquare + pp_const_exp_seq + pp_rsquare \
+  | pp_eexp_primary + pp_op_pow + pp_eexp \
   | pp_eexp_primary + pp_op_add + pp_eexp \
   | pp_eexp_primary + pp_op_sub + pp_eexp \
   | pp_eexp_primary + pp_op_mul + pp_eexp \
-  | pp_eexp_primary + pp_op_pow + pp_eexp \
-  | pp_eexp_primary + pp_op_pow + pp_lsquare + pp_const_exp_seq + pp_rsquare \
-  | pp_ulimbs + pp_const_exp + pp_lsquare + pp_eexps + pp_rsquare \
-  | pp_poly + pp_eexp + pp_lsquare + pp_eexps + pp_rsquare \
-  | pp_eexp_primary + pp_lsquare + pp_ranges + pp_rsquare
+  | pp_eexp_primary + pp_lsquare + pp_nums + pp_rsquare \
+  | pp_eexp_primary + pp_lsquare + pp_ranges + pp_rsquare \
+  | pp_eexp_primary
 pp_eexp_primary <<= \
     pp.Opt(pp_dollar) + pp_var \
   | pp_nums \
@@ -374,19 +374,19 @@ pp_eexp_primary <<= \
   | pp_lparen + pp_eexp + pp_rparen
 pp_eexps <<= pp.DelimitedList(pp_eexp, delim=",")
 pp_ebexp <<= \
-    pp_ebexp_primary \
-  | pp_eq + pp_eexp_primary + pp_eexp_primary \
-  | pp_eqmod + pp_eexp_primary + pp_eexp_primary + pp_eexp_primary \
+    pp_eq + pp_eexp_primary + pp_eexp_primary \
   | pp_eqmod + pp_eexp_primary + pp_eexp_primary + pp_lsquare + pp_eexps + pp_rsquare \
+  | pp_eqmod + pp_eexp_primary + pp_eexp_primary + pp_eexp_primary \
   | pp_eexp + pp_op_eq + pp_eexp + pp.Opt(pp_eeq_suffix) \
-  | pp_eexp + pp_op_ult + pp_eexp \
   | pp_eexp + pp_op_ule + pp_eexp \
-  | pp_eexp + pp_op_ugt + pp_eexp \
   | pp_eexp + pp_op_uge + pp_eexp \
-  | pp_and + pp_ebexp_primary + pp_ebexp_primary \
-  | pp_ebexp_primary + pp_op_land + pp_ebexp \
+  | pp_eexp + pp_op_ult + pp_eexp \
+  | pp_eexp + pp_op_ugt + pp_eexp \
   | pp_and + pp_lsquare + pp_ebexps + pp_rsquare \
-  | pp_op_land + pp_lsquare + pp_ebexps + pp_rsquare
+  | pp_and + pp_ebexp_primary + pp_ebexp_primary \
+  | pp_op_land + pp_lsquare + pp_ebexps + pp_rsquare \
+  | pp_ebexp_primary + pp_op_land + pp_ebexp \
+  | pp_ebexp_primary
 pp_ebexp_primary <<= \
     pp_true \
   | pp_lparen + pp_ebexp + pp_rparen
@@ -396,16 +396,14 @@ pp_rcmpop_prefix = \
     pp_ult | pp_ule | pp_ugt | pp_uge \
   | pp_slt | pp_sle | pp_sgt | pp_sge
 pp_rcmpop_infix = \
-    pp_op_ult | pp_op_ule | pp_op_ugt | pp_op_uge \
-  | pp_op_slt | pp_op_sle | pp_op_sgt | pp_op_sge
+    pp_op_sle | pp_op_sge | pp_op_ule | pp_op_uge \
+  | pp_op_slt | pp_op_sgt | pp_op_ult | pp_op_ugt
 pp_reqmod_prefix = \
   pp_eqmod | pp_equmod | pp_eqsmod | pp_eqsrem
 pp_req_suffix = \
   pp_lparen + (pp_mod | pp_umod | pp_smod | pp_srem) + pp_rexp + pp_rparen
 pp_rexp <<= \
-    pp_rexp_primary \
-  | pp_rexp_primary + pp_lsquare + pp_nums + pp_rsquare \
-  | (pp_uext | pp_sext) + pp_rexp_primary + pp_const_exp \
+    (pp_uext | pp_sext) + pp_rexp_primary + pp_const_exp \
   | (pp_neg | pp_op_neg | pp_not | pp_op_not) + pp_rexp_primary \
   | (pp_add | pp_sub | pp_mul) + pp_rexp_primary + pp_rexp_primary \
   | pp_sq + pp_rexp_primary \
@@ -417,7 +415,9 @@ pp_rexp <<= \
   | (pp_ulimbs | pp_slimbs) + pp_const_exp + pp_lsquare + pp_rexps + pp_rsquare \
   | pp_rexp_primary + (pp_op_add | pp_op_sub | pp_op_mul) + pp_rexp \
   | pp_rexp_primary + (pp_op_and | pp_op_or | pp_op_xor) + pp_rexp \
-  | pp_rexp_primary + (pp_op_shl | pp_op_shr | pp_op_sar) + pp_rexp
+  | pp_rexp_primary + (pp_op_shl | pp_op_sar | pp_op_shr) + pp_rexp \
+  | pp_rexp_primary + pp_lsquare + pp_nums + pp_rsquare \
+  | pp_rexp_primary
 pp_rexp_primary <<= \
     pp_var \
   | pp_const + (pp_const_exp | pp_typ) + pp_const_exp \
@@ -426,8 +426,7 @@ pp_rexp_primary <<= \
   | pp_lsquare + pp_rexps + pp_rsquare
 pp_rexps <<= pp.DelimitedList(pp_rexp, delim=",")
 pp_rbexp <<= \
-    pp_rbexp_primary \
-  | pp_eq + pp_rexp_primary + pp_rexp_primary \
+    pp_eq + pp_rexp_primary + pp_rexp_primary \
   | pp_rcmpop_prefix + pp_rexp_primary + pp_rexp_primary \
   | pp_reqmod_prefix + pp_rexp_primary + pp_rexp_primary + pp_rexp_primary \
   | pp_rexp + pp_op_eq + pp_rexp + pp.Opt(pp_req_suffix) \
@@ -436,10 +435,11 @@ pp_rbexp <<= \
   | pp_op_neg + pp_rbexp_primary \
   | pp_and + pp_rbexp_primary + pp_rbexp_primary \
   | pp_or + pp_rbexp_primary + pp_rbexp_primary \
+  | (pp_and | pp_op_land) + pp_lsquare + pp_rbexps + pp_rsquare \
+  | (pp_or | pp_op_lor) + pp_lsquare + pp_rbexps + pp_rsquare \
   | pp_rbexp_primary + pp_op_land + pp_rbexp \
   | pp_rbexp_primary + pp_op_lor + pp_rbexp \
-  | (pp_and | pp_op_land) + pp_lsquare + pp_rbexps + pp_rsquare \
-  | (pp_or | pp_op_lor) + pp_lsquare + pp_rbexps + pp_rsquare
+  | pp_rbexp_primary
 pp_rbexp_primary <<= \
     pp_true \
   | pp_lparen + pp_rbexp + pp_rparen
@@ -468,15 +468,15 @@ pp_tagged_rbexp_prove_with = \
 pp_tagged_ebexp_prove_with_list = pp.DelimitedList(pp_tagged_ebexp_prove_with, delim=".")
 pp_tagged_rbexp_prove_with_list = pp.DelimitedList(pp_tagged_rbexp_prove_with, delim=".")
 pp_tagged_bexp_prove_with_list = \
-    pp_true \
-  | pp_tagged_ebexp_prove_with_list + pp_vbar + pp_tagged_rbexp_prove_with_list
+    pp_tagged_ebexp_prove_with_list + pp_vbar + pp_tagged_rbexp_prove_with_list \
+  | pp_true
 pp_tagged_ebexp = pp.Opt((pp_id_seq | pp_op_mul | pp_all) + pp_colon) + pp_ebexps
 pp_tagged_rbexp = pp.Opt((pp_id_seq | pp_op_mul | pp_all) + pp_colon) + pp_rbexps
 pp_tagged_ebexps = pp.DelimitedList(pp_tagged_ebexp, delim=",")
 pp_tagged_rbexps = pp.DelimitedList(pp_tagged_rbexp, delim=",")
 pp_tagged_bexp = \
-    pp_true \
-  | pp_tagged_ebexps + pp_vbar + pp_tagged_rbexps
+    pp_tagged_ebexps + pp_vbar + pp_tagged_rbexps \
+  | pp_true
 
 pp_instr_10 = \
     pp_instr_set \
