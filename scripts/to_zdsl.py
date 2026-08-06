@@ -6,6 +6,9 @@
 # * __incr_C__ is replaced by the value of the counter C plus 1 and the counter C is incremented by 1.
 # * __C_incr__ is replaced by the value of the counter C and the counter C is incremented by 1.
 # * v[[i:j:k]] will be expanded into v[i], v[i+k], ..., v[j].
+# * A #! line ending with a backslash continues into the next #! line. The lines
+#   are joined by the same \n that a single-line rule spells out, so a continued
+#   rule and its one-line form are the same rule.
 
 import sys
 import os
@@ -67,6 +70,44 @@ def flatten(vs):
 # Return true if the input line is a comment about translation specification
 def is_tspec_comment(line):
   return re.match(r"^\s*#!.*$", line)
+
+# Return the input line without its trailing backslash if it continues into the
+# next translation specification line, otherwise None
+def tspec_continuation(line):
+  if not is_tspec_comment(line):
+    return None
+  match = re.match(r"^(.*)\\\s*$", line)
+  return match.group(1) if match else None
+
+# Strip the leading #! of a translation specification line
+def strip_tspec_marker(line):
+  return re.sub(r"^\s*#!", "", line).strip()
+
+# Join translation specification lines ending with a backslash with the lines
+# following them. The joined rule replaces the first line of the group and the
+# rest become empty lines, which keeps every other line number correct.
+def join_continued_tspec_lines(lines):
+  lines = list(lines)
+  i = 0
+  while i < len(lines):
+    head = tspec_continuation(lines[i])
+    if head is None:
+      i = i + 1
+      continue
+    parts = [head.strip()]
+    j = i + 1
+    while j < len(lines) and is_tspec_comment(lines[j]):
+      cont = tspec_continuation(lines[j])
+      parts.append(strip_tspec_marker(cont if cont is not None else lines[j]))
+      lines[j] = ""
+      j = j + 1
+      if cont is None:
+        break
+    else:
+      warn("a translation rule ends with a backslash but nothing continues it: `{}`".format(parts[0]))
+    lines[i] = "\\n".join(parts)
+    i = j
+  return lines
 
 # Return true if the input line is an assembly comment
 # Leading whitespace is allowed: itrace.py indents the comments it emits for
@@ -250,7 +291,8 @@ def parse_tspec(fn, line_parser, line_filter):
   substs = []
   rules = []
   with open(fn) as f:
-    lines = map(line_parser, [item for item in f.readlines() if line_filter(item)])
+    joined = join_continued_tspec_lines(f.readlines())
+    lines = map(line_parser, [item for item in joined if line_filter(item)])
     substs_set = set()
     rules_set = set()
     for line_substs, line_rules in lines:
@@ -402,7 +444,8 @@ def translate_instrs(tspec, instrs):
 # Returns the name of the traced function (if the file starts with a label),
 # the translation specification, and the instructions
 def parse_gas(fn):
-  lines = [line.rstrip("\r\n").rstrip('\n') for line in open(fn)]
+  lines = join_continued_tspec_lines(
+            [line.rstrip("\r\n").rstrip('\n') for line in open(fn)])
   instrs = []
   substs = []
   rules = []
