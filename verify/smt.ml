@@ -595,6 +595,10 @@ let bexp_atom_smul_safe w a1 a2 =
 let bexp_atom_ushl_safe w a p =
   if atom_is_const p then
     let n = Z.to_int (const_of_atom p) in
+    (* Shifting by zero drops no bit, and the equation below would compare two
+       expressions of zero bits, which no solver accepts. *)
+    if n = 0 then True
+    else
     Eq (n,
         High (w - n, n, exp_atom a),
         Const (n, Z.zero))
@@ -606,6 +610,8 @@ let bexp_atom_ushl_safe w a p =
 let bexp_atom_sshl_safe w a p =
   if atom_is_const p then
     let n = Z.to_int (const_of_atom p) in
+    if n = 0 then True
+    else
     Eq (w,
         SignExtend (w - n, n, Low (w - n, n, exp_atom a)),
         exp_atom a)
@@ -623,6 +629,8 @@ let bexp_atom_sshl_safe w a p =
 let bexp_atom_ushr_safe w a p =
   if atom_is_const p then
     let n = Z.to_int (const_of_atom p) in
+    if n = 0 then True
+    else
     Eq (n,
         Low (n, w - n, exp_atom a),
         Const (n, Z.zero))
@@ -634,6 +642,9 @@ let bexp_atom_ushr_safe w a p =
 let bexp_atom_sshr_safe w a p =
   if atom_is_const p then
     let n = Z.to_int (const_of_atom p) in
+    (* Only the sign bit is still at stake when nothing is shifted out *)
+    if n = 0 then Eq (1, High (w - 1, 1, exp_atom a), Const (1, Z.zero))
+    else
     Conj
       (Eq (1, High (w - 1, 1, exp_atom a), Const (1, Z.zero)),
        Eq (w, Low (n, w - n, exp_atom a), Const (n, Z.zero)))
@@ -645,6 +656,8 @@ let bexp_atom_sshr_safe w a p =
 let bexp_atom_usar_safe w a p =
   if atom_is_const p then
     let n = Z.to_int (const_of_atom p) in
+    if n = 0 then Eq (1, High (w - 1, 1, exp_atom a), Const (1, Z.zero))
+    else
     Conj
       (Eq (n, Low (n, w - n, exp_atom a), Const (n, Z.zero)),
        Eq (1, High (w - 1, 1, exp_atom a), Const (1, Z.zero)))
@@ -656,6 +669,8 @@ let bexp_atom_usar_safe w a p =
 let bexp_atom_ssar_safe w a p =
   if atom_is_const p then
     let n = Z.to_int (const_of_atom p) in
+    if n = 0 then True
+    else
     Eq (n,
         Low (n, w - n, exp_atom a),
         Const (n, Z.zero))

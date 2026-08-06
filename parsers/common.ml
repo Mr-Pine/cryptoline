@@ -887,8 +887,8 @@ let parse_ishl_at ctx lno dest src num =
     match a2 with
     | Aconst (_, z) ->
        let w = size_of_var v in
-       if Z.leq z Z.zero || Z.geq z (Z.of_int w) then
-         raise_at_line lno ("An shl instruction expects an offset between 0 and the " ^ string_of_int w ^ " (both excluding)."
+       if Z.lt z Z.zero || Z.geq z (Z.of_int w) then
+         raise_at_line lno ("An shl instruction expects an offset between 0 (including) and " ^ string_of_int w ^ " (excluding)."
                             ^ " An offset not in the range is found: " ^ Z.to_string z ^ ".")
     | _ -> ()
   in
@@ -917,8 +917,8 @@ let parse_ishr_at ctx lno dest src num =
     match a2 with
     | Aconst (_, z) ->
        let w = size_of_var v in
-       if Z.leq z Z.zero || Z.geq z (Z.of_int w) then
-         raise_at_line lno ("An shr instruction expects an offset between 0 and the " ^ string_of_int w ^ " (both excluding)."
+       if Z.lt z Z.zero || Z.geq z (Z.of_int w) then
+         raise_at_line lno ("An shr instruction expects an offset between 0 (including) and " ^ string_of_int w ^ " (excluding)."
                             ^ " An offset not in the range is found: " ^ Z.to_string z ^ ".")
     | _ -> ()
   in
@@ -947,8 +947,8 @@ let parse_isar_at ctx lno dest src num =
     match a2 with
     | Aconst (_, z) ->
        let w = size_of_var v in
-       if Z.leq z Z.zero || Z.geq z (Z.of_int w) then
-         raise_at_line lno ("An sar instruction expects an offset between 0 and the " ^ string_of_int w ^ " (both excluding)."
+       if Z.lt z Z.zero || Z.geq z (Z.of_int w) then
+         raise_at_line lno ("An sar instruction expects an offset between 0 (including) and " ^ string_of_int w ^ " (excluding)."
                             ^ " An offset not in the range is found: " ^ Z.to_string z ^ ".")
     | _ -> ()
   in
@@ -1159,18 +1159,32 @@ let parse_mulj_at ctx lno dest src1 src2 =
   let v = resolve_lv_with ctx lno dest (Some (typ_to_double_size ty)) in
   [lno, TImulj (v, a1, a2)]
 
+(* A split at either end of its range takes everything into one destination and
+   nothing into the other. It cannot be encoded there, since the empty side
+   would be an extraction of zero bits, so emit what it means instead. *)
+let split_instrs_at lno vh vl a n =
+  let w = size_of_var vl in
+  let zero v = TImov (v, Aconst (typ_of_var v, Z.zero)) in
+  if Z.lt n Z.zero || Z.gt n (Z.of_int w) then
+    raise_at_line lno ("The position of a split should be between 0 and " ^ string_of_int w ^ " (both included)")
+  else if Z.equal n Z.zero then
+    [lno, TImov (vh, a); lno, zero vl]
+  else if Z.equal n (Z.of_int w) then
+    (* The high destination would hold the sign of a repeated, which no single
+       instruction produces without also demanding that nothing was shifted out *)
+    if var_is_signed vh then
+      raise_at_line lno ("A split at position " ^ string_of_int w
+                         ^ " needs an unsigned destination for the high bits.")
+    else [lno, zero vh; lno, TIcast (None, vl, a)]
+  else [lno, TIsplit (vh, vl, a, n)]
+
 let parse_split_at ctx lno destH destL src num =
   let a = resolve_atom_with ctx lno src in
   let n = num ctx in
   let ty = typ_of_atom a in
   let vh = resolve_lv_with ctx lno destH (Some ty) in
   let vl = resolve_lv_with ctx lno destL (Some (typ_to_unsigned ty)) in
-  let _ =
-    let w = size_of_var vl in
-    if Z.leq n Z.zero || Z.geq n (Z.of_int w) then
-      raise_at_line lno ("The position of a split should be in between 0 and " ^ string_of_int w ^ " (both excluded)")
-  in
-  [lno, TIsplit (vh, vl, a, n)]
+  split_instrs_at lno vh vl a n
 
 let parse_spl_at ctx lno destH destL src num =
   let a = resolve_atom_with ctx lno src in
@@ -1332,12 +1346,7 @@ let parse_usplit_at ctx lno destH destL src num =
   let ty = typ_to_unsigned (typ_of_atom a) in
   let vh = resolve_lv_with ctx lno destH (Some ty) in
   let vl = resolve_lv_with ctx lno destL (Some ty) in
-  let _ =
-    let w = size_of_var vl in
-    if Z.leq n Z.zero || Z.geq n (Z.of_int w) then
-      raise_at_line lno ("The position of a split should be in between 0 and " ^ string_of_int w ^ " (both excluded)")
-  in
-  [lno, TIsplit (vh, vl, a, n)]
+  split_instrs_at lno vh vl a n
 
 let parse_uspl_at ctx lno destH destL src num =
   let a = resolve_atom_with ctx lno src in
@@ -1477,12 +1486,7 @@ let parse_ssplit_at ctx lno destH destL src num =
   let ty = typ_to_signed (typ_of_atom a) in
   let vh = resolve_lv_with ctx lno destH (Some ty) in
   let vl = resolve_lv_with ctx lno destL (Some (typ_to_unsigned ty)) in
-  let _ =
-    let w = size_of_var vl in
-    if Z.leq n Z.zero || Z.geq n (Z.of_int w) then
-      raise_at_line lno ("The position of a split should be in between 0 and " ^ string_of_int w ^ " (both excluded)")
-  in
-  [lno, TIsplit (vh, vl, a, n)]
+  split_instrs_at lno vh vl a n
 
 let parse_sspl_at ctx lno destH destL src num =
   let a = resolve_atom_with ctx lno src in

@@ -267,8 +267,13 @@ There are numerous \emph{instructions} supported by \cryptoline.
   range specification, but the algebraic abstraction drops the
   instruction and warns that it has done so, leaving $x$ unrelated to
   $a$; the same holds of $\ishr$ and $\isar$.
+  A constant $n$ ranges from $0$, which copies $a$ unchanged, up to but
+  excluding the size of $a$; the same holds of $\ishr$ and $\isar$.
 \item $\ishls\ o\ x\ a\ n$ is the same as $\ishls\ x\ a\ n$ except
   that the bits shifted out are stored in $o$.
+  Here $n$ must be positive, since $o$ holds the $n$ bits shifted out
+  and no variable is zero bits wide; the same holds of $\ishrs$ and
+  $\isars$.
 \item $\ishr\ x\ a\ n$ shifts the source atom $a$ right logically by
   $n$ and stores the results in $x$.
 \item $\ishrs\ x\ o\ a\ n$ is the same as $\ishr\ x\ a\ n$ except that
@@ -294,11 +299,18 @@ There are numerous \emph{instructions} supported by \cryptoline.
   $x_l$. $\isspl$ is the signed variant of $\ispl$. It splits the
   signed source atom, stores the signed high bits in $x_h$ and the
   unsigned low bits in $x_l$.
+  Here $n$ must lie strictly between $0$ and the size of $a$, since
+  either end would leave one destination zero bits wide.
 \item $\isplit$ is the same as $\ispl$ except that the high bits and
   the low bits are extended to the size of $a$. $\issplit$ is the
   signed variant of $\isplit$.
   While the low bits are always zero extended, the high bits are sign
   extended if $a$ is signed and otherwise zero extended.
+  Since both destinations are as wide as $a$, $n$ may be $0$, which
+  puts all of $a$ in $x_h$ and leaves $x_l$ zero, or the size of $a$,
+  which puts all of $a$ in $x_l$ and leaves $x_h$ zero.
+  The latter needs an unsigned $x_h$: for a signed $a$ it would hold
+  the sign of $a$ repeated, which no single instruction produces.
 \item $\ijoin\ x\ a_1\ a_2$ assigns $x$ by the concatenation of the
   source atoms $a_1$ (high bits) and $a_2$ (low bits).
 \item $\iseteq\ r\ a_1\ a_2$ sets $r$ to all $1$'s if $a_1$ equals
