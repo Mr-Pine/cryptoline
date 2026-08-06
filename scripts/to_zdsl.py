@@ -547,13 +547,13 @@ def main():
   if not args.nomain:
     # Calculate program inputs
     if verbose: t1 = process_time()
-    inputs = cryptoline.inputs_of_program(flatten([instr.dsl.split(";") for instr in instrs]))
+    inputs, types = cryptoline.inputs_of_program(flatten([clparse.pp_split_statements(instr.dsl) for instr in instrs]))
     if verbose: t2 = process_time()
     if verbose: sys.stderr.write("Time in calculating program inputs: {}\n".format(t2 - t1))
-    print ("proc main (%s) =" % ", ".join([string_of_typed_arg(i, vtypes, args.type) for i in inputs]))
+    print ("proc main (%s) =" % ", ".join([string_of_typed_arg(i, vtypes | types, args.type) for i in inputs]))
   if not args.nopre: print ("{\n  true\n  &&\n  true\n}\n")
   instr_strs = list(map((lambda i: i.to_string(print_asm)), instrs))
-  instr_strs = flatten([str.split("\n") for str in instr_strs])
+  instr_strs = flatten([clparse.pp_split_statements(str, sep="\n") for str in instr_strs])
   if auto_carries:
     instr_strs = cryptoline.assert_unused_carries(instr_strs, annot=True)
   if auto_unused:
