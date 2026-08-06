@@ -4,6 +4,8 @@
 # to be precise.
 
 
+import re
+
 import pyparsing as pp
 
 
@@ -274,8 +276,11 @@ pp_gvars = pp.DelimitedList(pp_gvar, delim=",")
 
 # ========== Constants ==========
 
+# A constant bound by a case statement, which is not a variable
+pp_named_const = pp.Combine(pp_dollar + pp_id)
+
 pp_sca_const_exp <<= pp.infix_notation(
-  pp_number,
+  pp_number | pp_named_const,
   [
     (pp.Literal("-")("op"),   1, pp.opAssoc.RIGHT),
     (pp.Literal("**")("op"),  2, pp.opAssoc.LEFT),
@@ -304,13 +309,15 @@ pp_ranges = pp_ranges_slicing | pp_ranges_indices
 
 # ========== Instructions ==========
 
-pp_lval = pp_sca_var | pp_vec_var
+pp_lval = pp_sca_var \
+        | pp_vec_var + pp_lsquare + pp_sca_const_exp + pp_rsquare \
+        | pp_vec_var
 
 pp_sca_atom <<= \
     pp_const_exp + pp_at_sca_typ_opt \
   | pp_sca_typ + pp_const_exp \
   | pp_sca_var \
-  | pp_vec_var + pp_lsquare + pp_nums + pp_rsquare
+  | pp_vec_var + pp_lsquare + pp_sca_const_exp + pp_rsquare
 pp_sca_atom_seq = pp.DelimitedList(pp_sca_atom, delim=",")
 pp_vec_atom <<= pp.infix_notation(
   ( \
@@ -573,6 +580,7 @@ pp_instr_nos = \
       pp.Group(pp_atom*2)("rvs") + pp_const_exp \
   | pp.Group(pp_instr_extract)("instr") + pp.Group(pp_lval)("lvs") + \
       pp_lsquare + pp_nums_seq + pp_rsquare + pp.Group(pp_atom[1,...])("rvs") \
+  | pp.Group(pp_instr_broadcast)("instr") + pp.Group(pp_lval)("lvs") + pp_const_exp + pp.Group(pp_atom)("rvs") \
   | pp.Group(pp_instr_invoke)("instr") + pp_id + pp_lparen + pp.Group(pp_actuals)("rvs") + pp_rparen \
   | pp.Group(pp_instr_assert)("annot") + pp.Group(pp_tagged_bexp_prove_with_list)("rvs") \
   | pp.Group(pp_instr_eassert)("annot") + pp.Group(pp_tagged_ebexp_prove_with_list)("rvs") \
@@ -605,9 +613,112 @@ def pp_filter_vars(vars, strs):
   else:
     return vars & set([strs])
 
+# Split on the separators between statements, that is, those outside the body
+# of a case statement
+def pp_split_statements(str, sep=";"):
+  stmts = []
+  depth = 0
+  start = 0
+  for i, c in enumerate(str):
+    if c == "{":
+      depth = depth + 1
+    elif c == "}":
+      depth = depth - 1
+    elif c == sep and depth == 0:
+      stmts.append(str[start:i])
+      start = i + 1
+  stmts.append(str[start:])
+  return [s for s in stmts if s.strip() != ""]
+
+pp_case_re = re.compile(r"^\s*case\s+\w+\s*=\s*(.*?)\s*\[[^]]*\]\s*(\{.*)$", re.DOTALL)
+pp_repeat_re = re.compile(r"^\s*repeat\s+\w+\s*=\s*\[[^]]*\]\s*(\{.*)$", re.DOTALL)
+
+# Split a leading balanced brace group off the input, returning its body and
+# what follows it, or None if the input does not start with one
+def pp_brace_group(str):
+  str = str.lstrip()
+  if not str.startswith("{"):
+    return None
+  depth = 0
+  for i, c in enumerate(str):
+    if c == "{":
+      depth = depth + 1
+    elif c == "}":
+      depth = depth - 1
+      if depth == 0:
+        return (str[1:i], str[i+1:])
+  return None
+
+# Collect over the statements of a body, treating a variable as read only where
+# nothing before it in the body has assigned it
+def pp_vars_of_body(res, body):
+  assigned = set()
+  for stmt in pp_split_statements(body):
+    vars = pp_vars_of_instr(stmt)
+    if vars == None:
+      return None
+    res["rvs"] |= vars["rvs"] - assigned
+    res["lvs"] |= vars["lvs"]
+    res["cvs"] |= vars["cvs"]
+    res["gvs"] |= vars["gvs"]
+    assigned |= vars["lvs"] | vars["gvs"]
+  return res
+
+# A case statement reads its subject and whatever its branches read without
+# having assigned it first, and assigns whatever they assign.
+def pp_vars_of_case(match):
+  subject = pp_vars_of_instr("mov clparse_case_dest " + match.group(1))
+  if subject == None:
+    return None
+  group = pp_brace_group(match.group(2))
+  if group == None:
+    return None
+  (body, rest) = group
+  bodies = [body]
+  rest = rest.strip()
+  if rest.startswith("else"):
+    group = pp_brace_group(rest[len("else"):])
+    if group == None:
+      return None
+    (else_body, rest) = group
+    bodies.append(else_body)
+  if rest.strip().rstrip(";").strip() != "":
+    return None
+  res = {"lvs": set(), "rvs": set(subject["rvs"]), "cvs": set(), "gvs": set(),
+         "is-annot": False}
+  for body in bodies:
+    if pp_vars_of_body(res, body) == None:
+      return None
+  return res
+
+# Drop the commas that separate the arguments of an instruction, which are
+# optional, while keeping those inside a bracketed list, which are not
+def pp_strip_argument_commas(str):
+  out = []
+  depth = 0
+  for c in str:
+    if c in "[(":
+      depth = depth + 1
+    elif c in ")]":
+      depth = depth - 1
+    if not (c == "," and depth == 0):
+      out.append(c)
+  return "".join(out)
+
 # not thread-safe
 def pp_vars_of_instr(str):
   global collected_vars
+  str = pp_strip_argument_commas(str)
+  match = pp_case_re.match(str)
+  if match:
+    return pp_vars_of_case(match)
+  match = pp_repeat_re.match(str)
+  if match:
+    group = pp_brace_group(match.group(1))
+    if group != None and group[1].strip().rstrip(";").strip() == "":
+      res = {"lvs": set(), "rvs": set(), "cvs": set(), "gvs": set(), "is-annot": False}
+      return pp_vars_of_body(res, group[0])
+    return None
   collected_vars = set()
   try:
     r = pp_instr_nos.parse_string(str, parse_all=True)
