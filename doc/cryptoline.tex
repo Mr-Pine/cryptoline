@@ -355,6 +355,43 @@ There are numerous \emph{instructions} supported by \cryptoline.
 \item $\iinlinespec\ p(a_1, a_2, \ldots, a_n)$ is semantically the
   same as $\iinline$ but $\iinlinespec$ is replaced by the
   pre-/post-conditions of $p$ for verification.
+\item $\icase\ n = a\ [k_1, \ldots, k_m]\ \{\ P\ \}$ runs the body $P$
+  once for each value $k_i$, with the name $n$ bound to $k_i$ as a
+  named integer, and keeps the run whose $k_i$ is the value the atom
+  $a$ actually has.
+  It is an abbreviation, expanding into $\iseteq$ instructions
+  comparing $a$ against each $k_i$, one copy of $P$ per value, and a
+  chain of $\icmov$ merging the copies.
+  Every variable $P$ assigns is merged; a body that reads a variable it
+  also assigns sees the value that variable had before the statement.
+  A value may be written as a range, so $[0 .. 3]$ abbreviates
+  $[0, 1, 2, 3]$, and the values must be distinct.
+  The body refers to the bound value as $\$n$, which lets it stand
+  where an instruction requires a constant rather than an atom, such as
+  the position of a $\isplit$ or the index of a vector element.
+  A $\icut$ may not appear in $P$.
+  The statement asserts that $a$ is one of $k_1, \ldots, k_m$, so a
+  program that can reach it with any other value fails to verify.
+\item $\icase\ n = a\ [k_1, \ldots, k_m]\ \{\ P\ \}\ \ielse\ \{\ Q\ \}$
+  runs $Q$ when $a$ is none of $k_1, \ldots, k_m$, and asserts nothing
+  about $a$.
+  $Q$ is what the merge falls through with, and only what every branch
+  assigns, $Q$ included, is an output of the statement.
+  The two forms differ in what an algebraic proof can conclude: without
+  an $\ielse$ one of the listed values was taken, so $a$ is known to be
+  that value, whereas with one the algebra cannot tell which branch ran,
+  since whether $a$ fell in the list is a range property.
+\item $\irepeat\ n = [k_1, \ldots, k_m]\ \{\ P\ \}$ runs $P$ once for
+  each value, in order, with $n$ bound as a named integer.
+  The values are not something the program chooses between, so the
+  copies are ordinary straight-line code: nothing is merged, and a later
+  copy sees what an earlier one assigned.
+  A lane of a vector may be assigned by naming it in the destination of
+  a $\imov$, as in $\imov\ v[\const]\pmb{,}\ a$, which is what makes
+  $\irepeat$ useful for per-lane work.
+  The comma is required there, since a bracket after a vector name would
+  otherwise begin a vector literal; instruction arguments may be
+  separated by commas generally.
 \end{itemize}
 
 \[
@@ -414,6 +451,11 @@ There are numerous \emph{instructions} supported by \cryptoline.
          & \mid & \pmb\iinline\ \id\ \pmb{(}\ \atom_{\pmb,}^*\ \pmb{)} \\
          & \mid & \pmb\iinlinespec\ \id\ \pmb{(}\ \atom_{\pmb,}^*\ \pmb{)}
          & \mid & \pmb\inop \\
+         & \multicolumn{3}{l}{\mid\ \pmb\icase\ \id\ \pmb{=}\ \atom\
+           \pmb{[}\ \const_{\pmb,}^+\ \pmb{]}\ \pmb\{\ \instr_{\pmb;}^+\ \pmb\}
+           \ [\ \pmb\ielse\ \pmb\{\ \instr_{\pmb;}^+\ \pmb\}\ ]} \\
+         & \multicolumn{3}{l}{\mid\ \pmb\irepeat\ \id\ \pmb{=}\
+           \pmb{[}\ \const_{\pmb,}^+\ \pmb{]}\ \pmb\{\ \instr_{\pmb;}^+\ \pmb\}} \\
 \end{array}
 \]
 Instructions $\iadd$, $\iadds$, $\iadc$, $\iadcs$, $\isub$, $\isubc$,

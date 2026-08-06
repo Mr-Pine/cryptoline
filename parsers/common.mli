@@ -288,8 +288,8 @@ type aconst_prim_t =
 
 type avecelm_prim_t =
   {
-    avecname: string;  (** name of a vector variable *)
-    avecindex: int     (** an index *)
+    avecname: string;          (** name of a vector variable *)
+    avecindex: Z.t contextual  (** an constant index depending on the context *)
   }
 (** an element in a vector variable *)
 
@@ -501,7 +501,15 @@ type instr_t =
   | `INLINESPEC of string * ((type_kind list * type_kind list -> atom list) contextual)
   | `INLINE of string * ((type_kind list * type_kind list -> atom list) contextual)
   | `NOP
+  | `CASE of string * atom_t * Z.t list * (lno * instr_t) list
+             * (lno * instr_t) list option
+  | `MOVELM of string * atom_t list * atom_t
+  | `REPEAT of string * Z.t list * (lno * instr_t) list
   ]
+
+val parse_case_range : lno -> Z.t -> Z.t -> Z.t list
+(** [parse_case_range lno st ed] returns the values of the case range
+    [st .. ed], both ends included. *)
 
 val resolve_selection : ('a list -> selection -> 'a list) lined contextual
 (** [resolve_selection ctx lno xs sel] returns a selection of elements in [xs] according to the selection [sel] *)
