@@ -61,7 +61,9 @@ class Instr:
     if self.dsl == nop_instr:
       return '(* ' + self.asm + ' *)' if pasm else ""
     else:
-      return ('(* ' + self.asm + ' *)\n' + self.dsl if pasm else self.dsl) + ";"
+      # A rule may already end its last statement with a semicolon
+      dsl = self.dsl if self.dsl.rstrip().endswith(";") else self.dsl + ";"
+      return '(* ' + self.asm + ' *)\n' + dsl if pasm else dsl
 
 # Flatten a list of lists
 def flatten(vs):
