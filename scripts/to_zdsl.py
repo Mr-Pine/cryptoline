@@ -5,7 +5,9 @@
 # * __counter_C__ is replaced by the value of the counter named C
 # * __incr_C__ is replaced by the value of the counter C plus 1 and the counter C is incremented by 1.
 # * __C_incr__ is replaced by the value of the counter C and the counter C is incremented by 1.
-# * v[[i:j:k]] will be expanded into v[i], v[i+k], ..., v[j].
+# * v[[i:j:k]] will be expanded into v[i], v[i+k], ..., stopping before v[j].
+#   An effective address expands to v[+i], v[+i+k], ..., since it is indexed by
+#   a signed byte offset.
 # * A #! line ending with a backslash continues into the next #! line. The lines
 #   are joined by the same \n that a single-line rule spells out, so a continued
 #   rule and its one-line form are the same rule.
@@ -155,22 +157,25 @@ def split_address(addr):
   else:
     raise ("Unknown address: {}".format(addr))
 
+list_notation_pattern = \
+  r"(\$(\d+)(c|v|ea|xmm|ymm|zmm))\[\[(-?\d+):(-?\d+):(-?\d+)\]\]"
+
+# Expand every v[[i:j:k]] whose index is i into v[i], v[i+k], ..., stopping
+# before j. An effective address is indexed by a signed byte offset, so it
+# expands to v[+i], v[+i+k], ... instead.
 def expand_list_notation(lhs, rhs, i):
-  def helper(s):
-    m = re.search(f"(\\${str(i)}(\\w+))\\[\\[(\\d+):(\\d+):(\\d+)\\]\\]", s)
-    if m and m.group(2) in ["c", "v", "ea", "xmm", "ymm", "zmm"]:
-      v = m.group(1)
-      start = int(m.group(3))
-      stop = int(m.group(4))
-      skip = int(m.group(5))
-      expanded = []
-      for j in range(start, stop, skip):
-        expanded.append(f"{v}[{j}]")
-      s = s.replace(m.group(0), f"{', '.join(expanded)}")
-    return s
-  lhs = helper(lhs)
-  rhs = helper(rhs)
-  return (lhs, rhs)
+  def expand(m):
+    if m.group(2) != str(i):
+      return m.group(0)
+    (start, stop, skip) = (int(m.group(4)), int(m.group(5)), int(m.group(6)))
+    if skip == 0:
+      warn("ignoring the list notation `{}`, whose step is zero".format(m.group(0)))
+      return m.group(0)
+    index = (lambda j: format(j, "+d")) if m.group(3) == "ea" else str
+    return ", ".join("{}[{}]".format(m.group(1), index(j))
+                     for j in range(start, stop, skip))
+  return (re.sub(list_notation_pattern, expand, lhs),
+          re.sub(list_notation_pattern, expand, rhs))
 
 # Process builtin variables such as $1c, $2c, $3v, etc
 def process_builtin_variables(pat, rep, indices):
