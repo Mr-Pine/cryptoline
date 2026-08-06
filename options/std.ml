@@ -122,6 +122,10 @@ let incremental_safety = ref false
 
 let incremental_safety_timeout = ref 300.0
 
+(* Locate and print the first unsafe instruction when safety verification
+   fails. Costs extra solver queries, but only on a failing run. *)
+let report_unsafe_instr = ref true
+
 let cross_cuts = ref false
 
 let jobs = Utils.Tasks.jobs

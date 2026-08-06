@@ -104,6 +104,11 @@ val incremental_safety_timeout : float ref
     In this case, the range solver will verify the safety condition again with
     an increased timeout. *)
 
+val report_unsafe_instr : bool ref
+(** [true] to locate and print the first unsafe instruction when the
+    verification of program safety fails. The instruction is located with
+    additional solver queries, which are only issued by a failing run. *)
+
 val cross_cuts : bool ref
 (** [true] to verify safety conditions of next cuts whenever there are free job workers *)
 
