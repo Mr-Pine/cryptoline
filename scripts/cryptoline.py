@@ -260,14 +260,17 @@ def vars_of_instr(instr):
 def inputs_of_program(instrs):
     inputs = set()
     defined = set()
+    types = {}
     for instr in instrs:
         vars = clparse.pp_vars_of_instr(instr)
         if vars == None:
             continue
         inputs |= (vars['rvs'] - defined)
         defined |= (vars['lvs'] | vars['gvs'])
+        if "types" in vars.keys():
+            types |= vars["types"]
     inputs = sorted(list(inputs))
-    return inputs
+    return inputs, types
 
 # Return the address variable.
 def compute_address(addr, offset, ea_pattern=default_ea_pattern):

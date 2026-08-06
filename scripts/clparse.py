@@ -242,9 +242,14 @@ pp_typ = pp_sca_typ | pp_vec_typ
 # ========== Variables ==========
 
 collected_vars = set()
+var_types = {}
 
 def collect_var(v):
   collected_vars.add(v[0])
+
+def collect_var_type(e):
+  if len(e) == 3 and e[1] == '@':
+    var_types[e[0]] = e[2]
 
 # variable names
 pp_sca_id = pp_id.copy()
@@ -258,6 +263,8 @@ pp_sca_var = pp_sca_id + pp_at_sca_typ_opt \
 pp_vec_var = pp_vec_id + pp_at_vec_typ_opt \
            | pp_vec_typ + pp_vec_id
 pp_var = pp_sca_var | pp_vec_var
+pp_sca_var.add_parse_action(collect_var_type)
+pp_vec_var.add_parse_action(collect_var_type)
 # ghost variables
 pp_gvar = \
     pp_typ + pp_var_id \
@@ -620,7 +627,7 @@ def pp_vars_of_instr(str):
     is_annot = "annot" in r
     if is_annot and r["annot"][0] == "ghost":
       rvs = rvs - gvs
-    ret = {"lvs": lvs, "rvs": rvs, "cvs": cvs, "gvs": gvs, "is-annot": is_annot}
+    ret = {"lvs": lvs, "rvs": rvs, "cvs": cvs, "gvs": gvs, "is-annot": is_annot, "types": var_types}
     return ret
   except pp.ParseException as err:
     return None
