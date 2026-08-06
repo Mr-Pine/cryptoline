@@ -238,7 +238,8 @@ pp_sca_typ = \
 pp_vec_typ = pp.Combine(pp_sca_typ + pp_lsquare + pp_nums + pp_rsquare)
 pp_at_sca_typ_opt = pp.Opt(pp_at + pp_sca_typ)
 pp_at_vec_typ_opt = pp.Opt(pp_at + pp_vec_typ)
-pp_typ = pp_sca_typ | pp_vec_typ
+# A vector type starts with a scalar type, so it has to be tried first
+pp_typ = pp_vec_typ | pp_sca_typ
 
 
 # ========== Variables ==========
@@ -748,6 +749,7 @@ if __name__ == "__main__":
   print(pp_vars_of_instr("mov L0x555555556020 0x1122334455667788@uint64"))
   print(pp_vars_of_instr("and x@uint64 y 0b1011@uint64"))
   print(pp_vars_of_instr("ghost x@uint64 : x = y && x = 10@32"))
+  print(pp_vars_of_instr("ghost %v@uint64[4] : %v = y && true"))
   print(pp_vars_of_instr("adds %_ %xmm0@uint32[4] %xmm11 %L0x7fffffd44a40"))
   print(pp_vars_of_instr("mov %ymm0 \
     [ %L0x7ffffffaf1c0[0],%L0x7ffffffaf1c0[1],%L0x7ffffffaf1c0[2],%L0x7ffffffaf1c0[3], \
