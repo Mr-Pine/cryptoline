@@ -185,6 +185,10 @@ let args_verifier =
     ("-no_carry_constraint", Clear carry_constraint,
      mk_arg_desc(["";
                   "Do not add carry constraints."]));
+    ("-no_unsafe_instr", Clear report_unsafe_instr,
+     mk_arg_desc(["";
+                  "Do not locate and print the first unsafe instruction when";
+                  "the verification of program safety fails."]));
     ("-minimize_constraint", Set minimize_constraint,
      mk_arg_desc(["";
                   "Minimize constraints."]));

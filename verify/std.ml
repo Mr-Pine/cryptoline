@@ -872,6 +872,108 @@ let verify_safety_mip options s hashopt =
   if !Options.Std.cross_cuts then verify_safety_mip_cross_cuts options vgen s hashopt
   else verify_safety_mip_cut_by_cut options vgen s hashopt
 
+(* A description of the property that an unsafe instruction fails to satisfy. *)
+let string_of_unsafe_reason i =
+  let styp v = string_of_typ v.vtyp in
+  match i with
+  | Iadd (v, _, _) -> Some ("the sum does not always fit in " ^ styp v)
+  | Iadc (v, _, _, _) -> Some ("the sum does not always fit in " ^ styp v)
+  | Isub (v, _, _) -> Some ("the difference does not always fit in " ^ styp v)
+  | Isbc (v, _, _, _)
+    | Isbb (v, _, _, _) -> Some ("the difference does not always fit in " ^ styp v)
+  | Imul (v, _, _) -> Some ("the product does not always fit in " ^ styp v)
+  | Ishl (v, _, _)
+    | Icshl (v, _, _, _, _) -> Some ("bits of " ^ styp v ^ " are not always shifted out as zeros")
+  | Ishr _
+    | Isar _
+    | Icshr _ -> Some "non-zero bits are not always shifted out"
+  | Ivpc (v, a) -> Some ("the value of type " ^ string_of_typ (typ_of_atom a)
+                         ^ " is not always representable in " ^ styp v)
+  | _ -> None
+
+(*
+ * Locate the first unsafe instruction of a cut.
+ *
+ * When the safety conditions of a cut are discharged in a single query, a
+ * failure only tells that the cut contains an unsafe instruction. The first
+ * such instruction is found by a binary search on the prefixes of the safety
+ * conditions: the conditions of a prefix are conjoined into one query, and
+ * the shortest failing prefix ends at the first unsafe instruction.
+ *
+ * Returns None if all the safety conditions of the cut hold.
+ *)
+let locate_unsafe_instr ?comments pre p hashopt =
+  let prog = Array.of_list p in
+  (* Instructions with a non-trivial safety condition, as tuples
+     (position in the cut, instruction, safety condition) *)
+  let conds =
+    let (_, conds_rev) =
+      Array.fold_left
+        (fun (idx, res) i ->
+          let q = bexp_instr_safe i in
+          (idx + 1, if q = True then res else (idx, i, q)::res))
+        (0, []) prog in
+    Array.of_list (List.rev conds_rev) in
+  let n = Array.length conds in
+  (* [prefix_safe k] is true if the safety conditions of the first k
+     instructions with a non-trivial safety condition all hold *)
+  let prefix_safe k =
+    let (idx, _, _) = conds.(k - 1) in
+    let p' = Array.to_list (Array.sub prog 0 (idx + 1)) in
+    let g = ref True in
+    let _ = for j = 0 to k - 1 do
+              let (_, _, q) = conds.(j) in
+              g := Conj (!g, q)
+            done in
+    let fp = safety_assumptions pre p' !g hashopt in
+    Qfbv.WithDomains.solve_simp
+      ~comments:(rcons_comments_option comments
+                   ("Locate unsafe instruction: first " ^ string_of_int k
+                    ^ " of " ^ string_of_int n ^ " safety conditions"))
+      (fp@[!g]) = Unsat in
+  if n = 0 || prefix_safe n then None
+  else
+    (* Invariant: the first !hi safety conditions do not all hold *)
+    let lo = ref 1 and hi = ref n in
+    let _ =
+      while !lo < !hi do
+        let mid = (!lo + !hi) / 2 in
+        if prefix_safe mid then lo := mid + 1 else hi := mid
+      done in
+    let (idx, i, _) = conds.(!lo - 1) in
+    Some (idx, i)
+
+(*
+ * Report the first instruction that makes safety verification fail.
+ * Only called after safety verification has already failed, so the extra
+ * solver queries are never paid by a successful run.
+ *)
+let report_unsafe_instr options s hashopt =
+  let _ = Options.Std.trace "===== Locating the first unsafe instruction =====" in
+  let report cid (found, sid) (_, s) =
+    if found then (found, sid)
+    else
+      let comments = [ "Verify: safety";
+                       Printf.sprintf "Track: %s" options.st_tag;
+                       "Cut: #" ^ string_of_int cid ] in
+      match locate_unsafe_instr ~comments s.rspre s.rsprog hashopt with
+      | None -> (false, sid + 1)
+      | Some (idx, i) ->
+         let _ = print_endline
+                   (Printf.sprintf
+                      "Safety verification failed at the following instruction (cut #%d, SSA instruction #%d):"
+                      cid idx) in
+         let _ = print_endline ("\t" ^ string_of_instr i) in
+         let _ = match string_of_unsafe_reason i with
+           | Some reason -> print_endline ("\t(" ^ reason ^ ")")
+           | None -> () in
+         (true, sid + 1) in
+  let (found, _) =
+    apply_to_cuts options.st_verify_scuts report (false, 0)
+      (cut_safety (rspec_of_spec s)) in
+  if not found then
+    print_endline "Safety verification failed but no unsafe instruction can be located."
+
 (*
  * The top function of verifying safety conditions.
  *
@@ -905,10 +1007,18 @@ let verify_safety_mip options s hashopt =
  *                                                               (verify safety of a whole cut)
  *)
 let verify_safety options s hashopt =
-  if !Options.Std.safety_by_mip then verify_safety_mip options s hashopt
-  else
-    if !cross_cuts then verify_safety_cross_cuts options s hashopt
-    else verify_safety_cut_by_cut options s hashopt
+  let res =
+    if !Options.Std.safety_by_mip then verify_safety_mip options s hashopt
+    else
+      if !cross_cuts then verify_safety_cross_cuts options s hashopt
+      else verify_safety_cut_by_cut options s hashopt in
+  (* Safety conditions may be discharged in a single query per cut, in which
+     case the failure above does not say which instruction is unsafe. Locating
+     it needs the SMT solver, which the MIP engine does not go through. *)
+  let _ = if not res && not !Options.Std.safety_by_mip
+                     && !Options.Std.report_unsafe_instr then
+            report_unsafe_instr options s hashopt in
+  res
 
 
 
