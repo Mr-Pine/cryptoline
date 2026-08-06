@@ -129,6 +129,14 @@ let convert_post vgen pre_prog_constr post ivars  =
    - int_vars: integer variables
    - cont_vars: continuous variables
  *)
+(* As in Cas.bv2z_instr, a variable shift or rotation amount has no linear
+   abstraction and the instruction is left out of the model. *)
+let warn_variable_amount i =
+  Options.Std.warn
+    (Printf.sprintf
+       "the MIP model ignores `%s' because the number of shifts is not a constant"
+       (string_of_instr i))
+
 let bv2mip (vgen, constrs, ivars) i =
   let eexp_atom = Cas.bv2z_atom in
   let eexp_assign v e = eeq (evar v) e in
@@ -143,6 +151,7 @@ let bv2mip (vgen, constrs, ivars) i =
         let c = Z.to_int (const_of_atom n) in
         (vgen, eexp_assign v (emulpow2 (eexp_atom a) c)::constrs, ivars)
       else
+        let _ = warn_variable_amount i in
         (vgen, constrs, ivars)
   | Ishls (f, v, a, n) ->
      (* f * 2**|v| + v == a * 2**n *)
@@ -156,6 +165,7 @@ let bv2mip (vgen, constrs, ivars) i =
        let c = Z.to_int (const_of_atom n) in
        (vgen, eeq (emulpow2 (evar v) c) (eexp_atom a)::constrs, ivars)
      else
+       let _ = warn_variable_amount i in
        (vgen, constrs, ivars)
   | Ishrs (v, f, a, n) ->
      (* f + 2**n * v == a *)
@@ -166,6 +176,7 @@ let bv2mip (vgen, constrs, ivars) i =
         let c = Z.to_int (const_of_atom n) in
         (vgen, eeq (emulpow2 (evar v) c) (eexp_atom a)::constrs, ivars)
       else
+        let _ = warn_variable_amount i in
         (vgen, constrs, ivars)
   | Isars (v, f, a, n) ->
      (* f + 2**n * v == a *)
@@ -342,6 +353,7 @@ let bv2mip (vgen, constrs, ivars) i =
        let rotate = eeq (evar v) (eadd (evar h) (evar l)) in
        (vgen'', rotate::splita::constrs, h::ivars)
      else
+       let _ = warn_variable_amount i in
        (vgen, constrs, ivars)
   | Iror (v, a, n) ->
      if atom_is_const n then
@@ -355,6 +367,7 @@ let bv2mip (vgen, constrs, ivars) i =
        let rotate = eeq (evar v) (eadd (evar h) (evar l)) in
        (vgen'', rotate::splita::constrs, h::ivars)
      else
+       let _ = warn_variable_amount i in
        (vgen, constrs, ivars)
   | Icmov (v, c, a0, a1) ->
      (* v - a0 <= 2**(|v|+1)*(1-c), -2**(|v|+1)(1-c) <= v - a0,

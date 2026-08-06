@@ -360,6 +360,11 @@ val vprint : string -> unit
 val vprintln : string -> unit
 (** [vprint s] prints the string [s] with an ending newline if {!verbose} is [true] *)
 
+val warn : string -> unit
+(** [warn s] prints the warning [s] to stderr. Repeating a warning already
+    printed does nothing, so a warning about an instruction is printed once
+    however many times that instruction is visited. *)
+
 val keep_temp_files : bool ref
 (** [true] to keep temporary files *)
 

@@ -149,6 +149,15 @@ let find_split_or_gen vgen aim a n =
   - bexps: polynomial equations abstracting the semantics of the instruction
   - exps: additional polynomials assumed to be nonzero. Each atomic postcondition will be multiplied by exps.
 *)
+(* A shift or rotation by a variable amount has no polynomial abstraction, so
+   the instruction contributes nothing and whatever it writes stays free. That
+   only ever weakens the model, but it is invisible in the result, hence the
+   warning. Enumerate the amount with a case statement to avoid it. *)
+let warn_variable_amount i =
+  warn (Printf.sprintf
+          "the algebraic model ignores `%s' because the number of shifts is not a constant"
+          (string_of_instr i))
+
 let bv2z_instr aim vgen i =
   let carry_constr c =
     if !carry_constraint
@@ -165,6 +174,7 @@ let bv2z_instr aim vgen i =
                             (vgen, aim, extras @@ [ eeq h (econst Z.zero); eeq (evar v) (emul2pow l ni) ], [])
        else (vgen, aim, [bv2z_assign v (emul2pow (bv2z_atom a) ni)], [])
      else
+       let _ = warn_variable_amount i in
        (vgen, aim, [], [])
   | Ishls (l, v, a, n) ->
      let ni = Z.to_int n in
@@ -200,6 +210,7 @@ let bv2z_instr aim vgen i =
                                  (vgen, aim, extras @@ [ eeq (evar v) ha; eeq la (econst Z.zero) ], [])
        else (vgen, aim, [eeq (emul2pow (evar v) ni) (bv2z_atom a)], [])
      else
+       let _ = warn_variable_amount i in
        (vgen, aim, [], [])
   | Ishrs (v, l, a, n) ->
      let w = size_of_var v in
@@ -234,6 +245,7 @@ let bv2z_instr aim vgen i =
                                  (vgen, aim, extras @@ [ eeq (evar v) ha; eeq la (econst Z.zero) ], [])
        else (vgen, aim, [eeq (emul2pow (evar v) ni) (bv2z_atom a)], [])
      else
+       let _ = warn_variable_amount i in
        (vgen, aim, [], [])
   | Isars (v, l, a, n) ->
      let w = size_of_var v in
@@ -339,7 +351,7 @@ let bv2z_instr aim vgen i =
        | Tuint w ->
           begin
             match n with
-            | Avar _ -> (vgen, aim, [], [])
+            | Avar _ -> let _ = warn_variable_amount i in (vgen, aim, [], [])
             | Aconst (_, n) ->
                let ni = Z.to_int n in
                if !track_split then let (vgen, aim, h, l, extras) = find_split_or_gen vgen aim a (w - ni) in
@@ -356,7 +368,7 @@ let bv2z_instr aim vgen i =
        | Tuint w ->
           begin
             match n with
-            | Avar _ -> (vgen, aim, [], [])
+            | Avar _ -> let _ = warn_variable_amount i in (vgen, aim, [], [])
             | Aconst (_, n) ->
                let ni = Z.to_int n in
                if !track_split then let (vgen, aim, h, l, extras) = find_split_or_gen vgen aim a ni in

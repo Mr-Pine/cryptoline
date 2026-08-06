@@ -497,6 +497,14 @@ let vprint msg = if !verbose then print_string msg; flush stdout
 
 let vprintln msg = if !verbose then print_endline msg; flush stdout
 
+let warned = Hashtbl.create 17
+
+let warn msg =
+  if not (Hashtbl.mem warned msg) then
+    let _ = Hashtbl.add warned msg () in
+    let _ = prerr_endline ("Warning: " ^ msg) in
+    flush stderr
+
 let keep_temp_files = ref false
 
 let tmpdir = ref None
