@@ -102,6 +102,9 @@
               "rcut"                       , RCUT;
               "ghost"                      , GHOST;
               "nop"                        , NOP;
+              "case"                       , CASE;
+              "else"                       , ELSE;
+              "repeat"                     , REPEAT;
               "seteq"                      , SETEQ;
               "setne"                      , SETNE;
               "extract"                    , EXTRACT;

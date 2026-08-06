@@ -363,7 +363,7 @@ type aconst_prim_t =
 type avecelm_prim_t =
   {
     avecname: string;
-    avecindex: int
+    avecindex: Z.t contextual
   }
 
 type lval_t =
@@ -567,7 +567,17 @@ type instr_t =
   | `INLINESPEC of string * ((type_kind list * type_kind list -> atom list) contextual)
   | `INLINE of string * ((type_kind list * type_kind list -> atom list) contextual)
   | `NOP
+  | `CASE of string * atom_t * Z.t list * (lno * instr_t) list
+             * (lno * instr_t) list option
+  | `MOVELM of string * atom_t list * atom_t
+  | `REPEAT of string * Z.t list * (lno * instr_t) list
   ]
+
+let parse_case_range lno st ed =
+  if Z.gt st ed then
+    raise_at_line lno (Printf.sprintf "The case range %s .. %s runs backwards."
+                         (Z.to_string st) (Z.to_string ed))
+  else List.rev_map Z.of_int (List.rev ((Z.to_int st)--(Z.to_int ed)))
 
 let resolve_selection ctx lno xs sel =
   match sel with
@@ -742,11 +752,12 @@ let rec resolve_atom_with ctx lno ?typ (a: atom_t) =
                   | _, _ -> raise_at_line lno ("Failed to determine the type of constant"))
   | `AVAR v -> resolve_var_with ctx lno (`AVAR v)
   | `AVECELM v -> let (elmty, elms) = resolve_vec_with ctx lno (`AVECT { vecname = v.avecname; vectyphint = None }) in
+                  let i = Z.to_int (v.avecindex ctx) in
                   let a =
                     try
-                      List.nth elms v.avecindex
-                    with Failure _ -> raise_at_line lno ("The index " ^ string_of_int v.avecindex ^ " is out of bound")
-                       | Invalid_argument _ -> raise_at_line lno ("The index " ^ string_of_int v.avecindex ^ " must be positive.") in
+                      List.nth elms i
+                    with Failure _ -> raise_at_line lno ("The index " ^ string_of_int i ^ " is out of bound")
+                       | Invalid_argument _ -> raise_at_line lno ("The index " ^ string_of_int i ^ " must be positive.") in
                   resolve_atom_with ctx lno ~typ:elmty a
   and
     resolve_vec_with ?(with_ghost=false) ctx lno src_tok : typ * atom_t list =
@@ -2076,14 +2087,15 @@ let gen_tmp_movs ctx lno (rwpairs: (string list * atom_t) list) relmtyp =
                          tmp_name)
                  else () in
          (SM.add tmp_name var submap, `AVAR {var with atmname=tmp_name})
-      | `AVECELM v when SS.mem (vec_name_fn v.avecname v.avecindex) tainted ->
-         let tmp_name = vec_name_fn v.avecname v.avecindex ^ "_" in
+      | `AVECELM v when SS.mem (vec_name_fn v.avecname (Z.to_int (v.avecindex ctx))) tainted ->
+         let elm_name = vec_name_fn v.avecname (Z.to_int (v.avecindex ctx)) in
+         let tmp_name = elm_name ^ "_" in
          let _ = if ctx_name_is_var ctx tmp_name then
                    raise_at_line lno (
                        Printf.sprintf "Internal error: Attempting to pick a temporary variable name %s but it has been used."
                          tmp_name)
                  else () in
-         (SM.add tmp_name { atmname = vec_name_fn v.avecname v.avecindex; atmtyphint = None } submap, `AVAR { atmname = tmp_name; atmtyphint = None })
+         (SM.add tmp_name { atmname = elm_name; atmtyphint = None } submap, `AVAR { atmname = tmp_name; atmtyphint = None })
       | `AVAR _
         | `ACONST _
         | `AVECELM _ -> (submap, a)
@@ -2690,7 +2702,20 @@ let parse_vbroadcast_at ctx lno dest_tok num src_tok =
   let src_padded = `AVLIT (List.init (len * Z.to_int n) (fun i -> List.nth src (i mod len))) in
   unpack_vinstr_11 parse_imov_at ctx lno dest_tok src_padded
 
-let recognize_instr_at ctx lno (instr : instr_t) =
+(* Distinguishes the variables one case statement introduces from another's *)
+let case_counter = ref 0
+
+let make_rename_case_visitor suffix vars =
+  let rename_var v =
+    if VS.mem v vars then mkvar (v.vname ^ suffix) v.vtyp else v in
+  object
+    inherit tnop_visitor
+    method! tvvar v = ChangeTo (rename_var v)
+    method! tvlval v = ChangeTo (rename_var v)
+    method! tvgvar v = ChangeTo (rename_var v)
+  end
+
+let rec recognize_instr_at ctx lno (instr : instr_t) =
   match instr with
   | `MOV (`LVPLAIN dest, src) ->
      parse_imov_at ctx lno dest src
@@ -2995,6 +3020,207 @@ let recognize_instr_at ctx lno (instr : instr_t) =
   | `INLINE (id, actuals) ->
      parse_inline_at ctx lno id actuals
   | `NOP -> []
+  | `CASE (cname, subject, values, body, else_body) ->
+     parse_case_at ctx lno cname subject values body else_body
+  | `MOVELM (vecname, index, src) ->
+     parse_movelm_at ctx lno vecname index src
+  | `REPEAT (cname, values, body) ->
+     parse_repeat_at ctx lno cname values body
+
+(* Splice the body once per value with the name bound to it. Unlike a case, the
+   values are not something the program chooses between, so the copies are
+   ordinary straight-line code and nothing has to be merged afterwards. *)
+and parse_repeat_at ctx lno cname values body =
+  let _ =
+    if values = [] then
+      raise_at_line lno "A repeat instruction expects at least one value." in
+  let _ =
+    if SM.mem cname ctx.cconsts || ctx_name_is_var ctx cname then
+      raise_at_line lno ("The repeat value name " ^ cname ^ " is already in use.") in
+  List.concat_map
+    (fun value ->
+      let _ = ctx.cconsts <- SM.add cname value ctx.cconsts in
+      let prog =
+        List.concat_map (fun (blno, binstr) -> recognize_instr_at ctx blno binstr) body in
+      let _ = ctx.cconsts <- SM.remove cname ctx.cconsts in
+      prog)
+    values
+
+(* One lane of a vector is an ordinary scalar under the name the vector expands
+   to, so assigning it is a mov to that name. *)
+and parse_movelm_at ctx lno vecname index src =
+  let i =
+    match index with
+    | [`ACONST { atmvalue; atmtyphint = None }] -> Z.to_int (atmvalue ctx)
+    | _ -> raise_at_line lno
+             ("An indexed destination expects a single constant index.") in
+  let (elmtyp, len) =
+    try ctx_find_vec ctx vecname
+    with Not_found ->
+      raise_at_line lno
+        (Printf.sprintf "Failed to determine the vector type of %s." vecname) in
+  let _ =
+    if i < 0 || i >= len then
+      raise_at_line lno
+        (Printf.sprintf "The index %d is out of bound of %s." i vecname) in
+  let a = resolve_atom_with ctx lno ~typ:elmtyp src in
+  let v =
+    resolve_lv_with ctx lno
+      { lvname = vec_name_fn vecname i; lvtyphint = Some elmtyp } (Some elmtyp) in
+  [lno, TImov (v, a)]
+
+(* Expand a case statement into seteq, the body once per value, and a cmov
+   chain merging the copies. The emitted assumption is what lets an algebraic
+   proof see through that merge: the polynomial abstraction of seteq on its own
+   leaves the subject unrelated to the merged result.
+
+   Without an else branch the statement asserts that the subject is one of the
+   values. With one it does not, since every value is then accounted for, and
+   the else branch is what the merge falls through with. *)
+and parse_case_at ctx lno cname subject_tok values body else_body =
+  let _ =
+    if values = [] then
+      raise_at_line lno "A case instruction expects at least one value." in
+  let _ =
+    if List.length (List.sort_uniq Z.compare values) <> List.length values then
+      raise_at_line lno "A case instruction expects distinct values." in
+  let _ =
+    if SM.mem cname ctx.cconsts || ctx_name_is_var ctx cname then
+      raise_at_line lno ("The case value name " ^ cname ^ " is already in use.") in
+  let subject = resolve_atom_with ctx lno subject_tok in
+  let ty = typ_of_atom subject in
+  let w = size_of_atom subject in
+  let id = let _ = incr case_counter in !case_counter in
+  let selectors =
+    List.mapi (fun i _ -> mkvar (Printf.sprintf "case%d_is%d" id i) bit_t) values in
+  (* Parsing a branch defines the body's variables, so put the definitions back
+     between branches: otherwise a later branch takes what an earlier one
+     introduced for having existed all along. *)
+  let defined_before = (ctx.cvars, ctx.ccarries, ctx.cvecs, ctx.cghosts, ctx.cvecghosts) in
+  let restore_definitions () =
+    let (cvars, ccarries, cvecs, cghosts, cvecghosts) = defined_before in
+    let _ = ctx.cvars <- cvars in
+    let _ = ctx.ccarries <- ccarries in
+    let _ = ctx.cvecs <- cvecs in
+    let _ = ctx.cghosts <- cghosts in
+    ctx.cvecghosts <- cvecghosts in
+  let was_defined v = let (cvars, _, _, _, _) = defined_before in SM.mem v.vname cvars in
+  let branch suffix bound bbody =
+    let _ = restore_definitions () in
+    let _ = match bound with
+      | Some value -> ctx.cconsts <- SM.add cname value ctx.cconsts
+      | None -> () in
+    let prog =
+      List.concat_map (fun (blno, binstr) -> recognize_instr_at ctx blno binstr) bbody in
+    let _ = match bound with
+      | Some _ -> ctx.cconsts <- SM.remove cname ctx.cconsts
+      | None -> () in
+    let outs = lvs_lined_tagged_program prog in
+    let rename v = mkvar (v.vname ^ suffix) v.vtyp in
+    let seeds =
+      List.filter_map
+        (fun v -> if was_defined v then Some (lno, TImov (rename v, Avar v)) else None)
+        (VS.elements outs) in
+    let renamed = tvisit_lined_program (make_rename_case_visitor suffix outs) prog in
+    (outs, seeds @ renamed, rename) in
+  let branches =
+    List.mapi (fun i value -> branch (Printf.sprintf "_case%d_%d" id i) (Some value) body)
+      values in
+  (* The else branch is not given a value to bind, so $n is undefined in it *)
+  let else_branch =
+    Option.map (branch (Printf.sprintf "_case%d_else" id) None) else_body in
+  let _ = restore_definitions () in
+  (* Only what every branch assigns is an output. A nested case names its own
+     variables apart in each branch it is expanded in, and those drop out here. *)
+  let outs =
+    let all = branches @ Option.to_list else_branch in
+    match all with
+    | [] -> VS.empty
+    | (first, _, _)::rest ->
+       List.fold_left (fun acc (o, _, _) -> VS.inter acc o) first rest in
+  let seteqs =
+    List.map2 (fun c value -> (lno, TIseteq (c, subject, Aconst (ty, value))))
+      selectors values in
+  (* An else branch is taken when no selector is set. The algebraic model cannot
+     say that with an inequality, so give it a variable of its own to relate to
+     the others. *)
+  let (else_selector, else_selector_instrs) =
+    match else_branch with
+    | None -> (None, [])
+    | Some _ ->
+       let any = mkvar (Printf.sprintf "case%d_any" id) bit_t in
+       let ors =
+         List.mapi (fun i c ->
+             if i = 0 then (lno, TImov (any, Avar c))
+             else (lno, TIor (any, Avar any, Avar c)))
+           selectors in
+       let c = mkvar (Printf.sprintf "case%d_else" id) bit_t in
+       (Some c, ors @ [(lno, TInot (c, Avar any))]) in
+  (* Enough headroom above the subject for the sum over the selectors *)
+  let wide = w + 8 in
+  let ext_subject =
+    if typ_is_signed ty then Rsext (w, rexp_of_atom subject, wide - w)
+    else Ruext (w, rexp_of_atom subject, wide - w) in
+  let ext_selector c = Ruext (1, rvar c, wide - 1) in
+  let sum_selectors = radds wide (List.map ext_selector selectors) in
+  let sum_values =
+    radds wide (List.map2
+                  (fun value c -> rmul wide (rconst wide value) (ext_selector c))
+                  values selectors) in
+  let esum_selectors = eadds (List.map evar selectors) in
+  let esum_values =
+    eadds (List.map2 (fun value c -> emul (econst value) (evar c)) values selectors) in
+  let (asserted, assumed) =
+    match else_selector with
+    | None ->
+       (* Exactly one branch runs, so the subject is the value it stands for *)
+       let in_range =
+         rors (List.map (fun value -> req w (rexp_of_atom subject) (rconst w value))
+                 values) in
+       (rand (rand in_range (req wide sum_selectors (rconst wide Z.one)))
+          (req wide ext_subject sum_values),
+        eand (eeq esum_selectors (econst Z.one)) (eeq (eexp_of_atom subject) esum_values))
+    | Some c ->
+       (* Either one branch runs, or the else branch does and both sides of the
+          second equation are zero *)
+       (rand (req wide (radd wide sum_selectors (ext_selector c)) (rconst wide Z.one))
+          (req wide (rmul wide ext_subject sum_selectors) sum_values),
+        eand (eeq (eadd esum_selectors (evar c)) (econst Z.one))
+          (eeq (emul (eexp_of_atom subject) esum_selectors) esum_values)) in
+  let assert_instr =
+    (lno, TIassert
+            (tagged_ebexp_prove_with_empty (),
+             tagged_rbexp_prove_with_singleton Options.Std.default_track
+               [(asserted, [])])) in
+  let assume_instr =
+    (lno, TIassume (tagged_bexp_singleton Options.Std.default_track (assumed, rtrue))) in
+  (* Fall through with the else branch, or with the last enumerated one when
+     there is none, then let the rest override it when their selector is set.
+     At most one is, so the order does not matter. *)
+  let merges =
+    let renames = List.map (fun (_, _, rename) -> rename) branches in
+    let (fallthrough, overrides) =
+      match else_branch with
+      | Some (_, _, rename_else) -> (rename_else, List.combine selectors renames)
+      | None ->
+         (match List.rev (List.combine selectors renames) with
+          | (_, rename_last)::rest -> (rename_last, List.rev rest)
+          | [] -> assert false) in
+    let merge_var v =
+      (lno, TImov (v, Avar (fallthrough v)))
+      :: List.map (fun (c, rename) -> (lno, TIcmov (v, Avar c, Avar (rename v), Avar v)))
+           overrides in
+    List.concat_map merge_var (VS.elements outs) in
+  let expanded =
+    seteqs @ else_selector_instrs @ [assert_instr; assume_instr]
+    @ List.concat_map (fun (_, prog, _) -> prog) (branches @ Option.to_list else_branch)
+    @ merges in
+  let _ =
+    let p = tagged_program_untag (lined_tagged_program_unlined expanded) in
+    let _ = VS.iter (ctx_define_var ctx) (lvs_program ~upd:true p) in
+    let _ = VS.iter (ctx_define_carry ctx) (lcarries_program ~upd:true p) in
+    () in
+  expanded
 
 let parse_instrs ctx instrs =
   let reducer prog_rev (lno, instr0) =

@@ -24,7 +24,7 @@
 %token UADD UADDS UADC UADCS USUB USUBC USUBB USBC USBCS USBB USBBS UMUL UMULS UMULL UMULJ USPLIT USPL
 %token SADD SADDS SADC SADCS SSUB SSUBC SSUBB SSBC SSBCS SSBB SSBBS SMUL SMULS SMULL SMULJ SSPLIT SSPL
 %token SHL SHLS SHR SHRS SAR SARS CSHL CSHLS CSHR CSHRS ROL ROR CONCAT SET CLEAR NONDET CMOV AND OR NOT CAST VPC JOIN ASSERT EASSERT RASSERT ASSUME GHOST
-%token CUT ECUT RCUT NOP SETEQ SETNE
+%token CUT ECUT RCUT NOP SETEQ SETNE CASE ELSE REPEAT
 /* Logical Expressions */
 %token VARS NEG SQ EXT UEXT SEXT MOD UMOD SREM SMOD XOR ULT ULE UGT UGE SLT SLE SGT SGE SHR SAR
 /* Predicates */
@@ -62,6 +62,7 @@
 %type <lval_t> lval
 %type <lval_vec_t> lval_v
 %type <atom_t> atom
+%type <unit> opt_comma
 %type <atom_vec_t> atom_v
 
 %%
@@ -147,241 +148,220 @@ instrs:
 ;
 
 instr:
-    MOV lval atom                                 { (get_line_start(), `MOV ($2, $3)) }
-  | MOV lval_v atom_v                             { (get_line_start(), `VMOV ($2, $3)) }
-  | EXTRACT lval_v LSQUARE nums RSQUARE atom_vs
-                                                  { (get_line_start(), `EXTRACT ($2, $4, $6)) }
+    MOV lval opt_comma atom                       { (get_line_start(), `MOV ($2, $4)) }
+  | MOV lval_v_nonbare opt_comma atom_v           { (get_line_start(), `VMOV ($2, $4)) }
+/* A bare vector name followed by a bracket is either a destination indexed by
+   what is in the bracket, which a comma then separates from the source, or a
+   whole vector destination whose source is the bracketed literal. Parse the
+   bracket once and let the comma tell the two apart. Everywhere else the
+   destination ends in a way that leaves no doubt. */
+  | MOV VEC_ID atom_v_nolit                       { (get_line_start(), `VMOV (`LVVECT { vecname = $2; vectyphint = None }, $3)) }
+  | MOV VEC_ID COMMA atom_v                       { (get_line_start(), `VMOV (`LVVECT { vecname = $2; vectyphint = None }, $4)) }
+  | MOV VEC_ID LSQUARE atom_scalars RSQUARE       { (get_line_start(), `VMOV (`LVVECT { vecname = $2; vectyphint = None }, `AVLIT $4)) }
+  | MOV VEC_ID LSQUARE atom_scalars RSQUARE COMMA atom
+                                                  { (get_line_start(), `MOVELM ($2, $4, $7)) }
+  | EXTRACT lval_v LSQUARE nums RSQUARE atom_vs   { (get_line_start(), `EXTRACT ($2, $4, $6)) }
   | lval EQOP atom                                { (get_line_start(), `MOV ($1, $3)) }
-  | BROADCAST lval_v const_exp_primary atom_v     { (get_line_start(), `VBROADCAST ($2, $3, $4)) }
-  | SHL lval atom atom                            { (get_line_start(), `SHL ($2, $3, $4)) }
-  | SHL lval_v atom_v_primary atom_v_primary      { (get_line_start(), `VSHL ($2, $3, $4)) }
-  | lval EQOP SHL atom atom                       { (get_line_start(), `SHL ($1, $4, $5)) }
-  | SHLS lval lval atom const_exp_primary         { (get_line_start(), `SHLS ($2, $3, $4, $5)) }
-  | SHLS lval_v lval_v atom_v_primary const_exp_v_primary
-                                                  { (get_line_start(), `VSHLS ($2, $3, $4, $5)) }
-  | lval lval EQOP SHLS atom const_exp_primary    { (get_line_start(), `SHLS ($1, $2, $5, $6)) }
-  | SHR lval atom atom                            { (get_line_start(), `SHR ($2, $3, $4)) }
-  | SHR lval_v atom_v_primary atom_v_primary      { (get_line_start(), `VSHR ($2, $3, $4)) }
-  | lval EQOP SHR atom atom                       { (get_line_start(), `SHR ($1, $4, $5)) }
-  | SHRS lval lval atom const_exp_primary         { (get_line_start(), `SHRS ($2, $3, $4, $5)) }
-  | SHRS lval_v lval_v atom_v_primary const_exp_v_primary
-                                                  { (get_line_start(), `VSHRS ($2, $3, $4, $5)) }
-  | lval lval EQOP SHRS atom const_exp_primary    { (get_line_start(), `SHRS ($1, $2, $5, $6)) }
-  | SAR lval atom atom                            { (get_line_start(), `SAR ($2, $3, $4)) }
-  | SAR lval_v atom_v_primary atom_v_primary      { (get_line_start(), `VSAR ($2, $3, $4)) }
-  | lval EQOP SAR atom atom                       { (get_line_start(), `SAR ($1, $4, $5)) }
-  | SARS lval lval atom const_exp_primary         { (get_line_start(), `SARS ($2, $3, $4, $5)) }
-  | SARS lval_v lval_v atom_v_primary const_exp_v_primary
-                                                  { (get_line_start(), `VSARS ($2, $3, $4, $5)) }
-  | lval lval EQOP SARS atom const_exp_primary    { (get_line_start(), `SARS ($1, $2, $5, $6)) }
-  | CSHL lval lval atom atom const_exp_primary    { (get_line_start(), `CSHL ($2, $3, $4, $5, $6)) }
-  | lval DOT lval EQOP CSHL atom atom const_exp_primary
-                                                  { (get_line_start(), `CSHL ($1, $3, $6, $7, $8)) }
-  | CSHLS lval lval lval atom atom const_exp_primary
-                                                  { (get_line_start(), `CSHLS ($2, $3, $4, $5, $6, $7)) }
-  | lval DOT lval DOT lval EQOP CSHLS atom atom const_exp_primary
-                                                  { (get_line_start(), `CSHLS ($1, $3, $5, $8, $9, $10)) }
-  | CSHR lval lval atom atom const_exp_primary    { (get_line_start(), `CSHR ($2, $3, $4, $5, $6)) }
-  | lval DOT lval EQOP CSHR atom atom const_exp_primary
-                                                  { (get_line_start(), `CSHR ($1, $3, $6, $7, $8)) }
-  | CSHRS lval lval lval atom atom const_exp_primary
-                                                  { (get_line_start(), `CSHRS ($2, $3, $4, $5, $6, $7)) }
-  | lval DOT lval DOT lval EQOP CSHRS atom atom const_exp_primary
-                                                  { (get_line_start(), `CSHRS ($1, $3, $5, $8, $9, $10)) }
-  | ROL lval atom atom                            { (get_line_start(), `ROL ($2, $3, $4)) }
-  | ROL lval_v atom_v_primary atom_v_primary      { (get_line_start(), `VROL ($2, $3, $4)) }
-  | ROR lval atom atom                            { (get_line_start(), `ROR ($2, $3, $4)) }
-  | ROR lval_v atom_v_primary atom_v_primary      { (get_line_start(), `VROR ($2, $3, $4)) }
+  | BROADCAST lval_v opt_comma const_exp_primary opt_comma atom_v { (get_line_start(), `VBROADCAST ($2, $4, $6)) }
+  | SHL lval opt_comma atom opt_comma atom        { (get_line_start(), `SHL ($2, $4, $6)) }
+  | SHL lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VSHL ($2, $4, $6)) }
+  | lval EQOP SHL atom opt_comma atom             { (get_line_start(), `SHL ($1, $4, $6)) }
+  | SHLS lval opt_comma lval opt_comma atom opt_comma const_exp_primary { (get_line_start(), `SHLS ($2, $4, $6, $8)) }
+  | SHLS lval_v opt_comma lval_v opt_comma atom_v_primary opt_comma const_exp_v_primary { (get_line_start(), `VSHLS ($2, $4, $6, $8)) }
+  | lval opt_comma lval EQOP SHLS atom opt_comma const_exp_primary { (get_line_start(), `SHLS ($1, $3, $6, $8)) }
+  | SHR lval opt_comma atom opt_comma atom        { (get_line_start(), `SHR ($2, $4, $6)) }
+  | SHR lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VSHR ($2, $4, $6)) }
+  | lval EQOP SHR atom opt_comma atom             { (get_line_start(), `SHR ($1, $4, $6)) }
+  | SHRS lval opt_comma lval opt_comma atom opt_comma const_exp_primary { (get_line_start(), `SHRS ($2, $4, $6, $8)) }
+  | SHRS lval_v opt_comma lval_v opt_comma atom_v_primary opt_comma const_exp_v_primary { (get_line_start(), `VSHRS ($2, $4, $6, $8)) }
+  | lval opt_comma lval EQOP SHRS atom opt_comma const_exp_primary { (get_line_start(), `SHRS ($1, $3, $6, $8)) }
+  | SAR lval opt_comma atom opt_comma atom        { (get_line_start(), `SAR ($2, $4, $6)) }
+  | SAR lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VSAR ($2, $4, $6)) }
+  | lval EQOP SAR atom opt_comma atom             { (get_line_start(), `SAR ($1, $4, $6)) }
+  | SARS lval opt_comma lval opt_comma atom opt_comma const_exp_primary { (get_line_start(), `SARS ($2, $4, $6, $8)) }
+  | SARS lval_v opt_comma lval_v opt_comma atom_v_primary opt_comma const_exp_v_primary { (get_line_start(), `VSARS ($2, $4, $6, $8)) }
+  | lval opt_comma lval EQOP SARS atom opt_comma const_exp_primary { (get_line_start(), `SARS ($1, $3, $6, $8)) }
+  | CSHL lval opt_comma lval opt_comma atom opt_comma atom opt_comma const_exp_primary { (get_line_start(), `CSHL ($2, $4, $6, $8, $10)) }
+  | lval DOT lval EQOP CSHL atom opt_comma atom opt_comma const_exp_primary { (get_line_start(), `CSHL ($1, $3, $6, $8, $10)) }
+  | CSHLS lval opt_comma lval opt_comma lval opt_comma atom opt_comma atom opt_comma const_exp_primary { (get_line_start(), `CSHLS ($2, $4, $6, $8, $10, $12)) }
+  | lval DOT lval DOT lval EQOP CSHLS atom opt_comma atom opt_comma const_exp_primary { (get_line_start(), `CSHLS ($1, $3, $5, $8, $10, $12)) }
+  | CSHR lval opt_comma lval opt_comma atom opt_comma atom opt_comma const_exp_primary { (get_line_start(), `CSHR ($2, $4, $6, $8, $10)) }
+  | lval DOT lval EQOP CSHR atom opt_comma atom opt_comma const_exp_primary { (get_line_start(), `CSHR ($1, $3, $6, $8, $10)) }
+  | CSHRS lval opt_comma lval opt_comma lval opt_comma atom opt_comma atom opt_comma const_exp_primary { (get_line_start(), `CSHRS ($2, $4, $6, $8, $10, $12)) }
+  | lval DOT lval DOT lval EQOP CSHRS atom opt_comma atom opt_comma const_exp_primary { (get_line_start(), `CSHRS ($1, $3, $5, $8, $10, $12)) }
+  | ROL lval opt_comma atom opt_comma atom        { (get_line_start(), `ROL ($2, $4, $6)) }
+  | ROL lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VROL ($2, $4, $6)) }
+  | ROR lval opt_comma atom opt_comma atom        { (get_line_start(), `ROR ($2, $4, $6)) }
+  | ROR lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VROR ($2, $4, $6)) }
   | SET lval                                      { (get_line_start(), `SET $2) }
   | SET lval_v                                    { (get_line_start(), `VSET $2) }
   | CLEAR lval                                    { (get_line_start(), `CLEAR $2) }
   | CLEAR lval_v                                  { (get_line_start(), `VCLEAR $2) }
   | NONDET lval                                   { (get_line_start(), `NONDET $2) }
   | NONDET lval_v                                 { (get_line_start(), `VNONDET $2) }
-  | CMOV lval atom atom atom                      { (get_line_start(), `CMOV ($2, $3, $4, $5)) }
-  | CMOV lval_v atom_v_primary atom_v_primary atom_v_primary
-                                                  { (get_line_start(), `VCMOV ($2, $3, $4, $5)) }
-  | lval EQOP CMOV atom atom atom                 { (get_line_start(), `CMOV ($1, $4, $5, $6)) }
-  | ADD lval atom atom                            { (get_line_start(), `ADD ($2, $3, $4)) }
-  | ADD lval_v atom_v_primary atom_v_primary      { (get_line_start(), `VADD ($2, $3, $4)) }
-  | lval EQOP ADD atom atom                       { (get_line_start(), `ADD ($1, $4, $5)) }
-  | ADDS lval lval atom atom                      { (get_line_start(), `ADDS ($2, $3, $4, $5)) }
-  | ADDS lval_v lval_v atom_v_primary atom_v_primary
-                                                  { (get_line_start(), `VADDS ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP ADDS atom atom             { (get_line_start(), `ADDS ($1,  $3, $6, $7)) }
-  | ADC lval atom atom atom                       { (get_line_start(), `ADC ($2, $3, $4, $5)) }
-  | lval EQOP ADC atom atom atom                  { (get_line_start(), `ADC ($1, $4, $5, $6)) }
-  | ADCS lval lval atom atom atom                 { (get_line_start(), `ADCS ($2, $3, $4, $5, $6)) }
-  | lval DOT lval EQOP ADCS atom atom atom        { (get_line_start(), `ADCS ($1, $3, $6, $7, $8)) }
-  | SUB lval atom atom                            { (get_line_start(), `SUB ($2, $3, $4)) }
-  | SUB lval_v atom_v_primary atom_v_primary
-                                                  { (get_line_start(), `VSUB ($2, $3, $4)) }
-  | lval EQOP SUB atom atom                       { (get_line_start(), `SUB ($1, $4, $5)) }
-  | SUBC lval lval atom atom                      { (get_line_start(), `SUBC ($2, $3, $4, $5)) }
-  | SUBC lval_v lval_v atom_v_primary atom_v_primary
-                                                  { (get_line_start(), `VSUBC ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP SUBC atom atom             { (get_line_start(), `SUBC ($1, $3, $6, $7)) }
-  | SUBB lval lval atom atom                      { (get_line_start(), `SUBB ($2, $3, $4, $5)) }
-  | SUBB lval_v lval_v atom_v_primary atom_v_primary
-                                                  { (get_line_start(), `VSUBB ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP SUBB atom atom             { (get_line_start(), `SUBB ($1, $3, $6, $7)) }
-  | SBC lval atom atom atom                       { (get_line_start(), `SBC ($2, $3, $4, $5)) }
-  | lval EQOP SBC atom atom atom                  { (get_line_start(), `SBC ($1, $4, $5, $6)) }
-  | SBCS lval lval atom atom atom                 { (get_line_start(), `SBCS ($2, $3, $4, $5, $6)) }
-  | lval DOT lval EQOP SBCS atom atom atom        { (get_line_start(), `SBCS ($1, $3, $6, $7, $8)) }
-  | SBB lval atom atom atom                       { (get_line_start(), `SBB ($2, $3, $4, $5)) }
-  | lval EQOP SBB atom atom atom                  { (get_line_start(), `SBB ($1, $4, $5, $6)) }
-  | SBBS lval lval atom atom atom                 { (get_line_start(), `SBBS ($2, $3, $4, $5, $6)) }
-  | lval DOT lval EQOP SBBS atom atom atom        { (get_line_start(), `SBBS ($1, $3, $6, $7, $8)) }
-  | MUL lval atom atom                            { (get_line_start(), `MUL ($2, $3, $4)) }
-  | MUL lval_v atom_v_primary atom_v_primary      { (get_line_start(), `VMUL ($2, $3, $4)) }
-  | lval EQOP MUL atom atom                       { (get_line_start(), `MUL ($1, $4, $5)) }
-  | MULS lval lval atom atom                      { (get_line_start(), `MULS ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP MULS atom atom             { (get_line_start(), `MULS ($1, $3, $6, $7)) }
-  | MULL lval lval atom atom                      { (get_line_start(), `MULL ($2, $3, $4, $5)) }
-  | MULL lval_v lval_v atom_v_primary atom_v_primary
-                                                  { (get_line_start(), `VMULL ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP MULL atom atom             { (get_line_start(), `MULL ($1, $3, $6, $7)) }
-  | MULJ lval atom atom                           { (get_line_start(), `MULJ ($2, $3, $4)) }
-  | MULJ lval_v atom_v_primary atom_v_primary     { (get_line_start(), `VMULJ ($2, $3, $4)) }
-  | lval EQOP MULJ atom atom                      { (get_line_start(), `MULJ ($1, $4, $5)) }
-  | SPLIT lval lval atom const_exp_primary        { (get_line_start(), `SPLIT ($2, $3, $4, $5)) }
-  | SPLIT lval_v lval_v atom_v_primary const_exp_primary
-                                                  { (get_line_start(), `VSPLIT ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP SPLIT atom const_exp_primary
-                                                  { (get_line_start(), `SPLIT ($1, $3, $6, $7)) }
-  | SPL lval lval atom const_exp_primary          { (get_line_start(), `SPL ($2, $3, $4, $5)) }
-  | SPL lval_v lval_v atom_v_primary const_exp_primary
-                                                  { (get_line_start(), `VSPL ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP SPL atom const_exp_primary { (get_line_start(), `SPL ($1, $3, $6, $7)) }
-  | SETEQ lval atom atom                          { (get_line_start(), `SETEQ ($2, $3, $4)) }
-  | SETEQ lval_v atom_v_primary atom_v_primary    { (get_line_start(), `VSETEQ ($2, $3, $4)) }
-  | SETNE lval atom atom                          { (get_line_start(), `SETNE ($2, $3, $4)) }
-  | SETNE lval_v atom_v_primary atom_v_primary    { (get_line_start(), `VSETNE ($2, $3, $4)) }
-  | UADD lval atom atom                           { (get_line_start(), `UADD ($2, $3, $4)) }
-  | UADD lval_v atom_v_primary atom_v_primary     { (get_line_start(), `VUADD ($2, $3, $4)) }
-  | lval EQOP UADD atom atom                      { (get_line_start(), `UADD ($1, $4, $5)) }
-  | UADDS lval lval atom atom                     { (get_line_start(), `UADDS ($2, $3, $4, $5)) }
-  | UADDS lval_v lval_v atom_v_primary atom_v_primary
-                                                  { (get_line_start(), `VUADDS ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP UADDS atom atom            { (get_line_start(), `UADDS ($1, $3, $6, $7)) }
-  | UADC lval atom atom atom                      { (get_line_start(), `UADC ($2, $3, $4, $5)) }
-  | lval EQOP UADC atom atom atom                 { (get_line_start(), `UADC ($1, $4, $5, $6)) }
-  | UADCS lval lval atom atom atom                { (get_line_start(), `UADCS ($2, $3, $4, $5, $6)) }
-  | lval DOT lval EQOP UADCS atom atom atom       { (get_line_start(), `UADCS ($1, $3, $6, $7, $8)) }
-  | USUB lval atom atom                           { (get_line_start(), `USUB ($2, $3, $4)) }
-  | lval EQOP USUB atom atom                      { (get_line_start(), `USUB ($1, $4, $5)) }
-  | USUBC lval lval atom atom                     { (get_line_start(), `USUBC ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP USUBC atom atom            { (get_line_start(), `USUBC ($1, $3, $6, $7)) }
-  | USUBB lval lval atom atom                     { (get_line_start(), `USUBB ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP USUBB atom atom            { (get_line_start(), `USUBB ($1, $3, $6, $7)) }
-  | USBC lval atom atom atom                      { (get_line_start(), `USBC ($2, $3, $4, $5)) }
-  | lval EQOP USBC atom atom atom                 { (get_line_start(), `USBC ($1, $4, $5, $6)) }
-  | USBCS lval lval atom atom atom                { (get_line_start(), `USBCS ($2, $3, $4, $5, $6)) }
-  | lval DOT lval EQOP USBCS atom atom atom       { (get_line_start(), `USBCS ($1, $3, $6, $7, $8)) }
-  | USBB lval atom atom atom                      { (get_line_start(), `USBB ($2, $3, $4, $5)) }
-  | lval EQOP USBB atom atom atom                 { (get_line_start(), `USBB ($1, $4, $5, $6)) }
-  | USBBS lval lval atom atom atom                { (get_line_start(), `USBBS ($2, $3, $4, $5, $6)) }
-  | lval DOT lval EQOP USBBS atom atom atom       { (get_line_start(), `USBBS ($1, $3, $6, $7, $8)) }
-  | UMUL lval atom atom                           { (get_line_start(), `UMUL ($2, $3, $4)) }
-  | UMUL lval_v atom_v_primary atom_v_primary     { (get_line_start(), `VUMUL ($2, $3, $4)) }
-  | lval EQOP UMUL atom atom                      { (get_line_start(), `UMUL ($1, $4, $5)) }
-  | UMULS lval lval atom atom                     { (get_line_start(), `UMULS ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP UMULS atom atom            { (get_line_start(), `UMULS ($1, $3, $6, $7)) }
-  | UMULL lval lval atom atom                     { (get_line_start(), `UMULL ($2, $3, $4, $5)) }
-  | UMULL lval_v lval_v atom_v_primary atom_v_primary
-                                                  { (get_line_start(), `VUMULL ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP UMULL atom atom            { (get_line_start(), `UMULL ($1, $3, $6, $7)) }
-  | UMULJ lval atom atom                          { (get_line_start(), `UMULJ ($2, $3, $4)) }
-  | UMULJ lval_v atom_v_primary atom_v_primary    { (get_line_start(), `VUMULJ ($2, $3, $4)) }
-  | lval EQOP UMULJ atom atom                     { (get_line_start(), `UMULJ ($1, $4, $5)) }
-  | USPLIT lval lval atom const_exp_primary       { (get_line_start(), `USPLIT ($2, $3, $4, $5)) }
-  | USPLIT lval_v lval_v atom_v_primary const_exp_primary
-                                                  { (get_line_start(), `VUSPLIT ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP USPLIT atom const_exp_primary
-                                                  { (get_line_start(), `USPLIT ($1, $3, $6, $7)) }
-  | USPL lval lval atom const_exp_primary         { (get_line_start(), `USPL ($2, $3, $4, $5)) }
-  | USPL lval_v lval_v atom_v_primary const_exp_primary
-                                                  { (get_line_start(), `VUSPL ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP USPL atom const_exp_primary
-                                                  { (get_line_start(), `USPL ($1, $3, $6, $7)) }
-  | SADD lval atom atom                           { (get_line_start(), `SADD ($2, $3, $4)) }
-  | SADD lval_v atom_v_primary atom_v_primary     { (get_line_start(), `VSADD ($2, $3, $4)) }
-  | lval EQOP SADD atom atom                      { (get_line_start(), `SADD ($1, $4, $5)) }
-  | SADDS lval lval atom atom                     { (get_line_start(), `SADDS ($2, $3, $4, $5)) }
-  | SADDS lval_v lval_v atom_v_primary atom_v_primary
-                                                  { (get_line_start(), `VSADDS ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP SADDS atom atom            { (get_line_start(), `SADDS ($1, $3, $6, $7)) }
-  | SADC lval atom atom atom                      { (get_line_start(), `SADC ($2, $3, $4, $5)) }
-  | lval EQOP SADC atom atom atom                 { (get_line_start(), `SADC ($1, $4, $5, $6)) }
-  | SADCS lval lval atom atom atom                { (get_line_start(), `SADCS ($2, $3, $4, $5, $6)) }
-  | lval DOT lval EQOP SADCS atom atom atom       { (get_line_start(), `SADCS ($1, $3, $6, $7, $8)) }
-  | SSUB lval atom atom                           { (get_line_start(), `SSUB ($2, $3, $4)) }
-  | lval EQOP SSUB atom atom                      { (get_line_start(), `SSUB ($1, $4, $5)) }
-  | SSUBC lval lval atom atom                     { (get_line_start(), `SSUBC ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP SSUBC atom atom            { (get_line_start(), `SSUBC ($1, $3, $6, $7)) }
-  | SSUBB lval lval atom atom                     { (get_line_start(), `SSUBB ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP SSUBB atom atom            { (get_line_start(), `SSUBB ($1, $3, $6, $7)) }
-  | SSBC lval atom atom atom                      { (get_line_start(), `SSBC ($2, $3, $4, $5)) }
-  | lval EQOP SSBC atom atom atom                 { (get_line_start(), `SSBC ($1, $4, $5, $6)) }
-  | SSBCS lval lval atom atom atom                { (get_line_start(), `SSBCS ($2, $3, $4, $5, $6)) }
-  | lval DOT lval EQOP SSBCS atom atom atom       { (get_line_start(), `SSBCS ($1, $3, $6, $7, $8)) }
-  | SSBB lval atom atom atom                      { (get_line_start(), `SSBB ($2, $3, $4, $5)) }
-  | lval EQOP SSBB atom atom atom                 { (get_line_start(), `SSBB ($1, $4, $5, $6)) }
-  | SSBBS lval lval atom atom atom                { (get_line_start(), `SSBBS ($2, $3, $4, $5, $6)) }
-  | lval DOT lval EQOP SSBBS atom atom atom       { (get_line_start(), `SSBBS ($1, $3, $6, $7, $8)) }
-  | SMUL lval atom atom                           { (get_line_start(), `SMUL ($2, $3, $4) )}
-  | SMUL lval_v atom_v_primary atom_v_primary     { (get_line_start(), `VSMUL ($2, $3, $4) )}
-  | lval EQOP SMUL atom atom                      { (get_line_start(), `SMUL ($1, $4, $5) )}
-  | SMULS lval lval atom atom                     { (get_line_start(), `SMULS ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP SMULS atom atom            { (get_line_start(), `SMULS ($1, $3, $6, $7)) }
-  | SMULL lval lval atom atom                     { (get_line_start(), `SMULL ($2, $3, $4, $5)) }
-  | SMULL lval_v lval_v atom_v_primary atom_v_primary
-                                                  { (get_line_start(), `VSMULL ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP SMULL atom atom            { (get_line_start(), `SMULL ($1, $3, $6, $7)) }
-  | SMULJ lval atom atom                          { (get_line_start(), `SMULJ ($2, $3, $4)) }
-  | SMULJ lval_v atom_v_primary atom_v_primary    { (get_line_start(), `VSMULJ ($2, $3, $4)) }
-  | lval EQOP SMULJ atom atom                     { (get_line_start(), `SMULJ ($1, $4, $5)) }
-  | SSPLIT lval lval atom const_exp_primary       { (get_line_start(), `SSPLIT ($2, $3, $4, $5)) }
-  | SSPLIT lval_v lval_v atom_v_primary const_exp_primary
-                                                  { (get_line_start(), `VSSPLIT ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP SSPLIT atom const_exp_primary
-                                                  { (get_line_start(), `SSPLIT ($1, $3, $6, $7)) }
-  | SSPL lval lval atom const_exp_primary         { (get_line_start(), `SSPL ($2, $3, $4, $5)) }
-  | SSPL lval_v lval_v atom_v_primary const_exp_primary
-                                                  { (get_line_start(), `VSSPL ($2, $3, $4, $5)) }
-  | lval DOT lval EQOP SSPL atom const_exp_primary
-                                                  { (get_line_start(), `SSPL ($1, $3, $6, $7)) }
-  | AND lval atom atom                            { (get_line_start(), `AND ($2, $3, $4)) }
-  | AND lval_v atom_v_primary atom_v_primary      { (get_line_start(), `VAND ($2, $3, $4)) }
-  | lval EQOP AND atom atom                       { (get_line_start(), `AND ($1, $4, $5)) }
-  | OR lval atom atom                             { (get_line_start(), `OR ($2, $3, $4)) }
-  | OR lval_v atom_v_primary atom_v_primary       { (get_line_start(), `VOR ($2, $3, $4)) }
-  | lval EQOP OR atom atom                        { (get_line_start(), `OR ($1, $4, $5)) }
-  | XOR lval atom atom                            { (get_line_start(), `XOR ($2, $3, $4)) }
-  | XOR lval_v atom_v_primary atom_v_primary      { (get_line_start(), `VXOR ($2, $3, $4)) }
-  | lval EQOP XOR atom atom                       { (get_line_start(), `XOR ($1, $4, $5)) }
-  | NOT lval atom                                 { (get_line_start(), `NOT ($2, $3)) }
-  | NOT lval_v atom_v_primary                     { (get_line_start(), `VNOT ($2, $3)) }
+  | CMOV lval opt_comma atom opt_comma atom opt_comma atom { (get_line_start(), `CMOV ($2, $4, $6, $8)) }
+  | CMOV lval_v opt_comma atom_v_primary opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VCMOV ($2, $4, $6, $8)) }
+  | lval EQOP CMOV atom opt_comma atom opt_comma atom { (get_line_start(), `CMOV ($1, $4, $6, $8)) }
+  | ADD lval opt_comma atom opt_comma atom        { (get_line_start(), `ADD ($2, $4, $6)) }
+  | ADD lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VADD ($2, $4, $6)) }
+  | lval EQOP ADD atom opt_comma atom             { (get_line_start(), `ADD ($1, $4, $6)) }
+  | ADDS lval opt_comma lval opt_comma atom opt_comma atom { (get_line_start(), `ADDS ($2, $4, $6, $8)) }
+  | ADDS lval_v opt_comma lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VADDS ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP ADDS atom opt_comma atom   { (get_line_start(), `ADDS ($1,  $3, $6, $8)) }
+  | ADC lval opt_comma atom opt_comma atom opt_comma atom { (get_line_start(), `ADC ($2, $4, $6, $8)) }
+  | lval EQOP ADC atom opt_comma atom opt_comma atom { (get_line_start(), `ADC ($1, $4, $6, $8)) }
+  | ADCS lval opt_comma lval opt_comma atom opt_comma atom opt_comma atom { (get_line_start(), `ADCS ($2, $4, $6, $8, $10)) }
+  | lval DOT lval EQOP ADCS atom opt_comma atom opt_comma atom { (get_line_start(), `ADCS ($1, $3, $6, $8, $10)) }
+  | SUB lval opt_comma atom opt_comma atom        { (get_line_start(), `SUB ($2, $4, $6)) }
+  | SUB lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VSUB ($2, $4, $6)) }
+  | lval EQOP SUB atom opt_comma atom             { (get_line_start(), `SUB ($1, $4, $6)) }
+  | SUBC lval opt_comma lval opt_comma atom opt_comma atom { (get_line_start(), `SUBC ($2, $4, $6, $8)) }
+  | SUBC lval_v opt_comma lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VSUBC ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP SUBC atom opt_comma atom   { (get_line_start(), `SUBC ($1, $3, $6, $8)) }
+  | SUBB lval opt_comma lval opt_comma atom opt_comma atom { (get_line_start(), `SUBB ($2, $4, $6, $8)) }
+  | SUBB lval_v opt_comma lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VSUBB ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP SUBB atom opt_comma atom   { (get_line_start(), `SUBB ($1, $3, $6, $8)) }
+  | SBC lval opt_comma atom opt_comma atom opt_comma atom { (get_line_start(), `SBC ($2, $4, $6, $8)) }
+  | lval EQOP SBC atom opt_comma atom opt_comma atom { (get_line_start(), `SBC ($1, $4, $6, $8)) }
+  | SBCS lval opt_comma lval opt_comma atom opt_comma atom opt_comma atom { (get_line_start(), `SBCS ($2, $4, $6, $8, $10)) }
+  | lval DOT lval EQOP SBCS atom opt_comma atom opt_comma atom { (get_line_start(), `SBCS ($1, $3, $6, $8, $10)) }
+  | SBB lval opt_comma atom opt_comma atom opt_comma atom { (get_line_start(), `SBB ($2, $4, $6, $8)) }
+  | lval EQOP SBB atom opt_comma atom opt_comma atom { (get_line_start(), `SBB ($1, $4, $6, $8)) }
+  | SBBS lval opt_comma lval opt_comma atom opt_comma atom opt_comma atom { (get_line_start(), `SBBS ($2, $4, $6, $8, $10)) }
+  | lval DOT lval EQOP SBBS atom opt_comma atom opt_comma atom { (get_line_start(), `SBBS ($1, $3, $6, $8, $10)) }
+  | MUL lval opt_comma atom opt_comma atom        { (get_line_start(), `MUL ($2, $4, $6)) }
+  | MUL lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VMUL ($2, $4, $6)) }
+  | lval EQOP MUL atom opt_comma atom             { (get_line_start(), `MUL ($1, $4, $6)) }
+  | MULS lval opt_comma lval opt_comma atom opt_comma atom { (get_line_start(), `MULS ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP MULS atom opt_comma atom   { (get_line_start(), `MULS ($1, $3, $6, $8)) }
+  | MULL lval opt_comma lval opt_comma atom opt_comma atom { (get_line_start(), `MULL ($2, $4, $6, $8)) }
+  | MULL lval_v opt_comma lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VMULL ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP MULL atom opt_comma atom   { (get_line_start(), `MULL ($1, $3, $6, $8)) }
+  | MULJ lval opt_comma atom opt_comma atom       { (get_line_start(), `MULJ ($2, $4, $6)) }
+  | MULJ lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VMULJ ($2, $4, $6)) }
+  | lval EQOP MULJ atom opt_comma atom            { (get_line_start(), `MULJ ($1, $4, $6)) }
+  | SPLIT lval opt_comma lval opt_comma atom opt_comma const_exp_primary { (get_line_start(), `SPLIT ($2, $4, $6, $8)) }
+  | SPLIT lval_v opt_comma lval_v opt_comma atom_v_primary opt_comma const_exp_primary { (get_line_start(), `VSPLIT ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP SPLIT atom opt_comma const_exp_primary { (get_line_start(), `SPLIT ($1, $3, $6, $8)) }
+  | SPL lval opt_comma lval opt_comma atom opt_comma const_exp_primary { (get_line_start(), `SPL ($2, $4, $6, $8)) }
+  | SPL lval_v opt_comma lval_v opt_comma atom_v_primary opt_comma const_exp_primary { (get_line_start(), `VSPL ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP SPL atom opt_comma const_exp_primary { (get_line_start(), `SPL ($1, $3, $6, $8)) }
+  | SETEQ lval opt_comma atom opt_comma atom      { (get_line_start(), `SETEQ ($2, $4, $6)) }
+  | SETEQ lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VSETEQ ($2, $4, $6)) }
+  | SETNE lval opt_comma atom opt_comma atom      { (get_line_start(), `SETNE ($2, $4, $6)) }
+  | SETNE lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VSETNE ($2, $4, $6)) }
+  | UADD lval opt_comma atom opt_comma atom       { (get_line_start(), `UADD ($2, $4, $6)) }
+  | UADD lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VUADD ($2, $4, $6)) }
+  | lval EQOP UADD atom opt_comma atom            { (get_line_start(), `UADD ($1, $4, $6)) }
+  | UADDS lval opt_comma lval opt_comma atom opt_comma atom { (get_line_start(), `UADDS ($2, $4, $6, $8)) }
+  | UADDS lval_v opt_comma lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VUADDS ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP UADDS atom opt_comma atom  { (get_line_start(), `UADDS ($1, $3, $6, $8)) }
+  | UADC lval opt_comma atom opt_comma atom opt_comma atom { (get_line_start(), `UADC ($2, $4, $6, $8)) }
+  | lval EQOP UADC atom opt_comma atom opt_comma atom { (get_line_start(), `UADC ($1, $4, $6, $8)) }
+  | UADCS lval opt_comma lval opt_comma atom opt_comma atom opt_comma atom { (get_line_start(), `UADCS ($2, $4, $6, $8, $10)) }
+  | lval DOT lval EQOP UADCS atom opt_comma atom opt_comma atom { (get_line_start(), `UADCS ($1, $3, $6, $8, $10)) }
+  | USUB lval opt_comma atom opt_comma atom       { (get_line_start(), `USUB ($2, $4, $6)) }
+  | lval EQOP USUB atom opt_comma atom            { (get_line_start(), `USUB ($1, $4, $6)) }
+  | USUBC lval opt_comma lval opt_comma atom opt_comma atom { (get_line_start(), `USUBC ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP USUBC atom opt_comma atom  { (get_line_start(), `USUBC ($1, $3, $6, $8)) }
+  | USUBB lval opt_comma lval opt_comma atom opt_comma atom { (get_line_start(), `USUBB ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP USUBB atom opt_comma atom  { (get_line_start(), `USUBB ($1, $3, $6, $8)) }
+  | USBC lval opt_comma atom opt_comma atom opt_comma atom { (get_line_start(), `USBC ($2, $4, $6, $8)) }
+  | lval EQOP USBC atom opt_comma atom opt_comma atom { (get_line_start(), `USBC ($1, $4, $6, $8)) }
+  | USBCS lval opt_comma lval opt_comma atom opt_comma atom opt_comma atom { (get_line_start(), `USBCS ($2, $4, $6, $8, $10)) }
+  | lval DOT lval EQOP USBCS atom opt_comma atom opt_comma atom { (get_line_start(), `USBCS ($1, $3, $6, $8, $10)) }
+  | USBB lval opt_comma atom opt_comma atom opt_comma atom { (get_line_start(), `USBB ($2, $4, $6, $8)) }
+  | lval EQOP USBB atom opt_comma atom opt_comma atom { (get_line_start(), `USBB ($1, $4, $6, $8)) }
+  | USBBS lval opt_comma lval opt_comma atom opt_comma atom opt_comma atom { (get_line_start(), `USBBS ($2, $4, $6, $8, $10)) }
+  | lval DOT lval EQOP USBBS atom opt_comma atom opt_comma atom { (get_line_start(), `USBBS ($1, $3, $6, $8, $10)) }
+  | UMUL lval opt_comma atom opt_comma atom       { (get_line_start(), `UMUL ($2, $4, $6)) }
+  | UMUL lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VUMUL ($2, $4, $6)) }
+  | lval EQOP UMUL atom opt_comma atom            { (get_line_start(), `UMUL ($1, $4, $6)) }
+  | UMULS lval opt_comma lval opt_comma atom opt_comma atom { (get_line_start(), `UMULS ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP UMULS atom opt_comma atom  { (get_line_start(), `UMULS ($1, $3, $6, $8)) }
+  | UMULL lval opt_comma lval opt_comma atom opt_comma atom { (get_line_start(), `UMULL ($2, $4, $6, $8)) }
+  | UMULL lval_v opt_comma lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VUMULL ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP UMULL atom opt_comma atom  { (get_line_start(), `UMULL ($1, $3, $6, $8)) }
+  | UMULJ lval opt_comma atom opt_comma atom      { (get_line_start(), `UMULJ ($2, $4, $6)) }
+  | UMULJ lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VUMULJ ($2, $4, $6)) }
+  | lval EQOP UMULJ atom opt_comma atom           { (get_line_start(), `UMULJ ($1, $4, $6)) }
+  | USPLIT lval opt_comma lval opt_comma atom opt_comma const_exp_primary { (get_line_start(), `USPLIT ($2, $4, $6, $8)) }
+  | USPLIT lval_v opt_comma lval_v opt_comma atom_v_primary opt_comma const_exp_primary { (get_line_start(), `VUSPLIT ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP USPLIT atom opt_comma const_exp_primary { (get_line_start(), `USPLIT ($1, $3, $6, $8)) }
+  | USPL lval opt_comma lval opt_comma atom opt_comma const_exp_primary { (get_line_start(), `USPL ($2, $4, $6, $8)) }
+  | USPL lval_v opt_comma lval_v opt_comma atom_v_primary opt_comma const_exp_primary { (get_line_start(), `VUSPL ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP USPL atom opt_comma const_exp_primary { (get_line_start(), `USPL ($1, $3, $6, $8)) }
+  | SADD lval opt_comma atom opt_comma atom       { (get_line_start(), `SADD ($2, $4, $6)) }
+  | SADD lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VSADD ($2, $4, $6)) }
+  | lval EQOP SADD atom opt_comma atom            { (get_line_start(), `SADD ($1, $4, $6)) }
+  | SADDS lval opt_comma lval opt_comma atom opt_comma atom { (get_line_start(), `SADDS ($2, $4, $6, $8)) }
+  | SADDS lval_v opt_comma lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VSADDS ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP SADDS atom opt_comma atom  { (get_line_start(), `SADDS ($1, $3, $6, $8)) }
+  | SADC lval opt_comma atom opt_comma atom opt_comma atom { (get_line_start(), `SADC ($2, $4, $6, $8)) }
+  | lval EQOP SADC atom opt_comma atom opt_comma atom { (get_line_start(), `SADC ($1, $4, $6, $8)) }
+  | SADCS lval opt_comma lval opt_comma atom opt_comma atom opt_comma atom { (get_line_start(), `SADCS ($2, $4, $6, $8, $10)) }
+  | lval DOT lval EQOP SADCS atom opt_comma atom opt_comma atom { (get_line_start(), `SADCS ($1, $3, $6, $8, $10)) }
+  | SSUB lval opt_comma atom opt_comma atom       { (get_line_start(), `SSUB ($2, $4, $6)) }
+  | lval EQOP SSUB atom opt_comma atom            { (get_line_start(), `SSUB ($1, $4, $6)) }
+  | SSUBC lval opt_comma lval opt_comma atom opt_comma atom { (get_line_start(), `SSUBC ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP SSUBC atom opt_comma atom  { (get_line_start(), `SSUBC ($1, $3, $6, $8)) }
+  | SSUBB lval opt_comma lval opt_comma atom opt_comma atom { (get_line_start(), `SSUBB ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP SSUBB atom opt_comma atom  { (get_line_start(), `SSUBB ($1, $3, $6, $8)) }
+  | SSBC lval opt_comma atom opt_comma atom opt_comma atom { (get_line_start(), `SSBC ($2, $4, $6, $8)) }
+  | lval EQOP SSBC atom opt_comma atom opt_comma atom { (get_line_start(), `SSBC ($1, $4, $6, $8)) }
+  | SSBCS lval opt_comma lval opt_comma atom opt_comma atom opt_comma atom { (get_line_start(), `SSBCS ($2, $4, $6, $8, $10)) }
+  | lval DOT lval EQOP SSBCS atom opt_comma atom opt_comma atom { (get_line_start(), `SSBCS ($1, $3, $6, $8, $10)) }
+  | SSBB lval opt_comma atom opt_comma atom opt_comma atom { (get_line_start(), `SSBB ($2, $4, $6, $8)) }
+  | lval EQOP SSBB atom opt_comma atom opt_comma atom { (get_line_start(), `SSBB ($1, $4, $6, $8)) }
+  | SSBBS lval opt_comma lval opt_comma atom opt_comma atom opt_comma atom { (get_line_start(), `SSBBS ($2, $4, $6, $8, $10)) }
+  | lval DOT lval EQOP SSBBS atom opt_comma atom opt_comma atom { (get_line_start(), `SSBBS ($1, $3, $6, $8, $10)) }
+  | SMUL lval opt_comma atom opt_comma atom       { (get_line_start(), `SMUL ($2, $4, $6) )}
+  | SMUL lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VSMUL ($2, $4, $6) )}
+  | lval EQOP SMUL atom opt_comma atom            { (get_line_start(), `SMUL ($1, $4, $6) )}
+  | SMULS lval opt_comma lval opt_comma atom opt_comma atom { (get_line_start(), `SMULS ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP SMULS atom opt_comma atom  { (get_line_start(), `SMULS ($1, $3, $6, $8)) }
+  | SMULL lval opt_comma lval opt_comma atom opt_comma atom { (get_line_start(), `SMULL ($2, $4, $6, $8)) }
+  | SMULL lval_v opt_comma lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VSMULL ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP SMULL atom opt_comma atom  { (get_line_start(), `SMULL ($1, $3, $6, $8)) }
+  | SMULJ lval opt_comma atom opt_comma atom      { (get_line_start(), `SMULJ ($2, $4, $6)) }
+  | SMULJ lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VSMULJ ($2, $4, $6)) }
+  | lval EQOP SMULJ atom opt_comma atom           { (get_line_start(), `SMULJ ($1, $4, $6)) }
+  | SSPLIT lval opt_comma lval opt_comma atom opt_comma const_exp_primary { (get_line_start(), `SSPLIT ($2, $4, $6, $8)) }
+  | SSPLIT lval_v opt_comma lval_v opt_comma atom_v_primary opt_comma const_exp_primary { (get_line_start(), `VSSPLIT ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP SSPLIT atom opt_comma const_exp_primary { (get_line_start(), `SSPLIT ($1, $3, $6, $8)) }
+  | SSPL lval opt_comma lval opt_comma atom opt_comma const_exp_primary { (get_line_start(), `SSPL ($2, $4, $6, $8)) }
+  | SSPL lval_v opt_comma lval_v opt_comma atom_v_primary opt_comma const_exp_primary { (get_line_start(), `VSSPL ($2, $4, $6, $8)) }
+  | lval DOT lval EQOP SSPL atom opt_comma const_exp_primary { (get_line_start(), `SSPL ($1, $3, $6, $8)) }
+  | AND lval opt_comma atom opt_comma atom        { (get_line_start(), `AND ($2, $4, $6)) }
+  | AND lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VAND ($2, $4, $6)) }
+  | lval EQOP AND atom opt_comma atom             { (get_line_start(), `AND ($1, $4, $6)) }
+  | OR lval opt_comma atom opt_comma atom         { (get_line_start(), `OR ($2, $4, $6)) }
+  | OR lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VOR ($2, $4, $6)) }
+  | lval EQOP OR atom opt_comma atom              { (get_line_start(), `OR ($1, $4, $6)) }
+  | XOR lval opt_comma atom opt_comma atom        { (get_line_start(), `XOR ($2, $4, $6)) }
+  | XOR lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VXOR ($2, $4, $6)) }
+  | lval EQOP XOR atom opt_comma atom             { (get_line_start(), `XOR ($1, $4, $6)) }
+  | NOT lval opt_comma atom                       { (get_line_start(), `NOT ($2, $4)) }
+  | NOT lval_v opt_comma atom_v_primary           { (get_line_start(), `VNOT ($2, $4)) }
   | lval EQOP NOT atom                            { (get_line_start(), `NOT ($1, $4)) }
-  | CAST lval atom                                { (get_line_start(), `CAST (None, $2, $3)) }
-  | CAST lval_v atom_v_primary                    { (get_line_start(), `VCAST (None, $2, $3)) }
+  | CAST lval opt_comma atom                      { (get_line_start(), `CAST (None, $2, $4)) }
+  | CAST lval_v opt_comma atom_v_primary          { (get_line_start(), `VCAST (None, $2, $4)) }
   // XXX: the "[]" is to workaround a r/r conflict (TODO: remove this rule as the conflict has been resolved)
-  | CAST LSQUARE RSQUARE lval_v atom_v_primary    { (get_line_start(), `VCAST (None, $4, $5)) }
+  | CAST LSQUARE RSQUARE lval_v opt_comma atom_v_primary { (get_line_start(), `VCAST (None, $4, $6)) }
   /* Only one lval is expected in lval_scalars */
-  | CAST LSQUARE lval_scalars RSQUARE lval atom   { match $3 with
-                                                    | [] -> (get_line_start(), `CAST (None, $5, $6))
-                                                    | lv::[] -> (get_line_start(), `CAST (Some lv, $5, $6))
+  | CAST LSQUARE lval_scalars RSQUARE lval opt_comma atom { match $3 with
+                                                    | [] -> (get_line_start(), `CAST (None, $5, $7))
+                                                    | lv::[] -> (get_line_start(), `CAST (Some lv, $5, $7))
                                                     | _ -> failwith "" }
   | lval EQOP CAST atom                           { (get_line_start(), `CAST (None, $1, $4)) }
-  | VPC lval atom                                 { (get_line_start(), `VPC ($2, $3)) }
-  | VPC lval_v atom_v_primary                     { (get_line_start(), `VVPC ($2, $3)) }
+  | VPC lval opt_comma atom                       { (get_line_start(), `VPC ($2, $4)) }
+  | VPC lval_v opt_comma atom_v_primary           { (get_line_start(), `VVPC ($2, $4)) }
   // XXX: the "[]" is to workaround a r/r conflict (TODO: remove this rule as the conflict has been resolved)
-  | VPC LSQUARE RSQUARE lval_v atom_v_primary     { (get_line_start(), `VVPC ($4, $5)) }
+  | VPC LSQUARE RSQUARE lval_v opt_comma atom_v_primary { (get_line_start(), `VVPC ($4, $6)) }
   | lval EQOP VPC atom                            { (get_line_start(), `VPC ($1, $4)) }
-  | JOIN lval atom atom                           { (get_line_start(), `JOIN ($2, $3, $4)) }
-  | lval EQOP JOIN atom atom                      { (get_line_start(), `JOIN ($1, $4, $5)) }
-  | JOIN lval_v atom_v_primary atom_v_primary     { (get_line_start(), `VJOIN ($2, $3, $4)) }
+  | JOIN lval opt_comma atom opt_comma atom       { (get_line_start(), `JOIN ($2, $4, $6)) }
+  | lval EQOP JOIN atom opt_comma atom            { (get_line_start(), `JOIN ($1, $4, $6)) }
+  | JOIN lval_v opt_comma atom_v_primary opt_comma atom_v_primary { (get_line_start(), `VJOIN ($2, $4, $6)) }
 /*
   | ASSERT bexp_prove_with_list                   { (get_line_start(), `ASSERT $2) }
   | EASSERT ebexp_prove_with_list                 { (get_line_start(), `EASSERT $2) }
@@ -405,6 +385,9 @@ instr:
   | INLINESPEC ID LPAR actuals RPAR               { (get_line_start(), `INLINESPEC ($2, $4)) }
   | INLINE ID LPAR actuals RPAR                   { (get_line_start(), `INLINE ($2, $4)) }
   | NOP                                           { (get_line_start(), `NOP) }
+  | CASE ID EQOP atom LSQUARE case_values RSQUARE LBRAC case_body RBRAC { (get_line_start(), `CASE ($2, $4, $6, $9, None)) }
+  | CASE ID EQOP atom LSQUARE case_values RSQUARE LBRAC case_body RBRAC ELSE LBRAC case_body RBRAC { (get_line_start(), `CASE ($2, $4, $6, $9, Some $13)) }
+  | REPEAT ID EQOP LSQUARE case_values RSQUARE LBRAC case_body RBRAC { (get_line_start(), `REPEAT ($2, $5, $8)) }
   /* Errors */
   | MOV error                                     { raise_at_line (get_line_start()) ("Bad mov instruction") }
   | BROADCAST error                               { raise_at_line (get_line_start()) ("Bad broadcast instruction") }
@@ -470,6 +453,29 @@ instr:
   | CALL error                                    { raise_at_line (get_line_start()) ("Bad call instruction") }
   | INLINE ID LPAR error                          { raise_at_line (get_line_start()) (("Invalid actuals in the inline instruction: " ^ $2)) }
   | INLINE error                                  { raise_at_line (get_line_start()) ("Bad inline instruction") }
+  | CASE error                                    { raise_at_line (get_line_start()) ("Bad case instruction") }
+  | REPEAT error                                  { raise_at_line (get_line_start()) ("Bad repeat instruction") }
+;
+
+opt_comma:
+    /* empty */                                   { () }
+  | COMMA                                         { () }
+;
+
+case_values:
+    case_value                                    { $1 }
+  | case_value COMMA case_values                  { $1 @ $3 }
+;
+
+case_value:
+    NUM                                           { [$1] }
+  | NUM DOTDOT NUM                                { parse_case_range (get_line_start()) $1 $3 }
+;
+
+case_body:
+    instr                                         { [$1] }
+  | instr SEMICOLON                               { [$1] }
+  | instr SEMICOLON case_body                     { $1 :: $3 }
 ;
 
 tagged_bexp_prove_with_list:
@@ -972,7 +978,13 @@ lval:
 
 lval_v:
     VEC_ID                                        { `LVVECT { vecname = $1; vectyphint = None; } }
-  | VEC_ID AT vectyp                              { `LVVECT { vecname = $1; vectyphint = Some $3; } }
+  | lval_v_nonbare                                { $1 }
+;
+
+/* A vector destination that cannot be mistaken for the start of an indexed
+   one, because it ends in a type or a bracket of its own */
+lval_v_nonbare:
+    VEC_ID AT vectyp                              { `LVVECT { vecname = $1; vectyphint = Some $3; } }
   | LSQUARE lval_scalars RSQUARE                  { `LVVLIT $2 }
 ;
 
@@ -1017,7 +1029,7 @@ atom:
   | const_exp_primary AT typ                      { `ACONST { atmtyphint = Some $3; atmvalue = $1; } }
   | typ const_exp_primary                         { `ACONST { atmtyphint = Some $1; atmvalue = $2; } }
   | defined_var                                   { ($1 :> atom_t) }
-  | VEC_ID LSQUARE NUM RSQUARE                    { `AVECELM { avecname = $1; avecindex = Z.to_int $3 } }
+  | VEC_ID LSQUARE const_exp RSQUARE              { `AVECELM { avecname = $1; avecindex = $3 } }
   /*| LPAR atom RPAR                              { fun ctx -> $2 ctx } source of reduce/reduce conflict*/
 ;
 
@@ -1027,6 +1039,22 @@ atom_v:
   /* low ++ high */
   | atom_v ADDADDOP atom_v                        { `AVECCAT [$1; $3] }
   | atom_v ADDADDOP const_exp_primary             { `AVECDUP ($1, $3) }
+;
+
+/* atom_v without a leading vector literal, so that a bracket following a
+   vector destination can only belong to that destination */
+atom_v_primary_nolit:
+    VEC_ID                                        { `AVECT { vecname = $1; vectyphint = None; } }
+  | VEC_ID AT vectyp                              { `AVECT { vecname = $1; vectyphint = Some $3; } }
+  | const_exp_primary AT vectyp                   { `AVCONST { csttype = $3; cstvalue = $1 } }
+  | LPAR atom_v RPAR                              { $2 }
+;
+
+atom_v_nolit:
+    atom_v_primary_nolit                          { $1 }
+  | atom_v_primary_nolit LSQUARE ranges RSQUARE   { `AVECSEL { vecselatm = $1; vecselrng = $3 } }
+  | atom_v_nolit ADDADDOP atom_v                  { `AVECCAT [$1; $3] }
+  | atom_v_nolit ADDADDOP const_exp_primary       { `AVECDUP ($1, $3) }
 ;
 
 atom_v_primary:
