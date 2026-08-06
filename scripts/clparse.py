@@ -247,8 +247,15 @@ pp_typ = pp_vec_typ | pp_sca_typ
 collected_vars = set()
 var_types = {}
 
+# The keywords defined above, which look like identifiers but name no
+# variable. An alternative that fails is not undone, so reading one of them
+# as an expression would collect it.
+pp_keywords = frozenset(kw.match for kw in list(globals().values())
+                        if isinstance(kw, pp.Keyword))
+
 def collect_var(v):
-  collected_vars.add(v[0])
+  if v[0] not in pp_keywords:
+    collected_vars.add(v[0])
 
 def collect_var_type(e):
   if len(e) == 3 and e[1] == '@':
