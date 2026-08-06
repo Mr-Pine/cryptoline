@@ -272,7 +272,9 @@ pp_vec_var.add_parse_action(collect_var_type)
 pp_gvar = \
     pp_typ + pp_var_id \
   | pp_var_id + pp_at + pp_typ
-pp_gvars = pp.DelimitedList(pp_gvar, delim=",")
+# The commas between ghost variables are dropped along with those between
+# arguments, so a list of them is accepted with or without the commas
+pp_gvars = pp_gvar + (pp.Opt(pp.Literal(",")) + pp_gvar)[...]
 
 
 # ========== Constants ==========
@@ -750,6 +752,7 @@ if __name__ == "__main__":
   print(pp_vars_of_instr("and x@uint64 y 0b1011@uint64"))
   print(pp_vars_of_instr("ghost x@uint64 : x = y && x = 10@32"))
   print(pp_vars_of_instr("ghost %v@uint64[4] : %v = y && true"))
+  print(pp_vars_of_instr("ghost x@uint64, %v@uint64[4] : x = %v && true"))
   print(pp_vars_of_instr("adds %_ %xmm0@uint32[4] %xmm11 %L0x7fffffd44a40"))
   print(pp_vars_of_instr("mov %ymm0 \
     [ %L0x7ffffffaf1c0[0],%L0x7ffffffaf1c0[1],%L0x7ffffffaf1c0[2],%L0x7ffffffaf1c0[3], \
