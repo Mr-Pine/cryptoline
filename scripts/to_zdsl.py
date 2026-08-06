@@ -15,6 +15,7 @@ import string
 import random
 from argparse import ArgumentParser
 from time import process_time
+import clparse
 import cryptoline
 
 length_random_string = 5
