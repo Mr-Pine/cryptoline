@@ -81,8 +81,8 @@
 # w = 16 bits, d = 32 bits, q = 64 bits
 
 #! movdqa $1xmm, $2xmm -> mov %$2xmm %$1xmm@uint64[2]
-#! movdqa $1ea, $2xmm -> mov %$2xmm@uint64[2] [$1ea, $1ea[+8]]
-#! movdqu $1ea, $2xmm -> mov %$2xmm@uint64[2] [$1ea, $1ea[+8]]
+#! movdqa $1ea, $2xmm -> mov %$2xmm@uint64[2] [$1ea[[0:16:8]]]
+#! movdqu $1ea, $2xmm -> mov %$2xmm@uint64[2] [$1ea[[0:16:8]]]
 #! movdqu $1xmm, $2ea -> mov [$2ea, $2ea[+8]] %$1xmm@uint64[2]
 #! movddup $1ea, $2xmm -> mov %$2xmm@uint64[2] [ $1ea, $1ea ]
 #! paddd $1xmm, $2xmm -> adds %dc %$2xmm@uint32[4] %$2xmm %$1xmm
@@ -100,14 +100,14 @@
 #! punpcklqdq $1xmm, $2xmm -> mov %$2xmm@uint64[2] [%$2xmm[0], %$1xmm[0]]
 #! punpckhqdq $1xmm, $2xmm -> mov %$2xmm@uint64[2] [%$2xmm[1], %$1xmm[1]]
 #! vinserti128 \$0x1, $1xmm, $2ymm, $3ymm -> mov %$3ymm@uint64[4] (%$2ymm[0, 1] ++ %$1xmm[0, 1])
-#! vmovapd $1ea, $2ymm -> mov %$2ymm@uint64[4] [$1ea,$1ea[+8],$1ea[+16],$1ea[+24]]
+#! vmovapd $1ea, $2ymm -> mov %$2ymm@uint64[4] [$1ea[[0:32:8]]]
 #! vmovapd $1ymm, $2ea -> mov [$2ea,$2ea[+8],$2ea[+16],$2ea[+24]] %$1ymm@uint64[4]
-#! vmovdqa $1ea, $2ymm -> mov %$2ymm@uint64[4] [$1ea,$1ea[+8],$1ea[+16],$1ea[+24]]
+#! vmovdqa $1ea, $2ymm -> mov %$2ymm@uint64[4] [$1ea[[0:32:8]]]
 #! vmovdqa $1ymm, $2ea -> mov [$2ea,$2ea[+8],$2ea[+16],$2ea[+24]] %$1ymm@uint64[4]
-#! vmovdqu $1ea, $2ymm -> mov %$2ymm@uint64[4] [$1ea, $1ea[+8], $1ea[+16], $1ea[+24]]
+#! vmovdqu $1ea, $2ymm -> mov %$2ymm@uint64[4] [$1ea[[0:32:8]]]
 #! vmovsldup $1ymm, $2ymm -> mov %$2ymm@sint32[8] (%$1ymm[0, 0, 2, 2, 4, 4, 6, 6])
 #! vmovshdup $1ymm, $2ymm -> mov %$2ymm@sint32[8] (%$1ymm[1, 1, 3, 3, 5, 5, 7, 7])
-#! vmovupd $1ea, $2ymm -> mov %$2ymm@uint64[4] [$1ea,$1ea[+8],$1ea[+16],$1ea[+24]]
+#! vmovupd $1ea, $2ymm -> mov %$2ymm@uint64[4] [$1ea[[0:32:8]]]
 #! vmovupd $1ymm, $2ea -> mov [$2ea,$2ea[+8],$2ea[+16],$2ea[+24]] %$1ymm@uint64[4]
 #! vpaddd $1ymm, $2ymm, $3ymm -> add %$3ymm@sint32[8] %$2ymm %$1ymm
 #! vpaddw $1ymm, $2ymm, $3ymm -> add %$3ymm@sint16[16] %$1ymm %$2ymm
@@ -122,11 +122,21 @@
 #! vperm2i128 \$0x1, $1ymm, $2ymm, $3ymm -> mov %$3ymm@sint32[8] (%$2ymm[4, 5, 6, 7] ++ %$1ymm[0, 1, 2, 3])
 #! vperm2i128 \$0x20, $1ymm, $2ymm, $3ymm -> mov %$3ymm@sint32[8] (%$2ymm[0, 1, 2, 3] ++ %$1ymm[0, 1, 2, 3])
 #! vperm2i128 \$0x31, $1ymm, $2ymm, $3ymm -> mov %$3ymm@sint32[8] (%$2ymm[4, 5, 6, 7] ++ %$1ymm[4, 5, 6, 7])
+# The permutation is chosen by the low two bits of each lane of the first
+# operand, so a case over 0 .. 3 covers every index the mask can produce. The
+# destination is seeded from the source to give it a vector type before its
+# lanes are assigned one at a time.
+#! vpermq $1ymm, $2ymm, $3ymm ->                                              \
+#!   and %permidx@uint64[4] %$1ymm [3@uint64, 3@uint64, 3@uint64, 3@uint64];  \
+#!   mov %$3ymm@uint64[4] %$2ymm;                                             \
+#!   repeat i = [0 .. 3] {                                                    \
+#!     case n = %permidx[$i] [0 .. 3] { mov %$3ymm[$i], %$2ymm[$n] }          \
+#!   }
 #! vpmuldq $1ymm, $2ymm, $3ymm -> mulj %$3ymm@sint64[4] (%$2ymm[0, 2, 4, 6]) (%$1ymm[0, 2, 4, 6])
 #! vpmullw $1ymm, $2ymm, $3ymm -> smull %dc %$3ymm@uint16[16] %$2ymm %$1ymm
-#! vpmullw $1ea, $2ymm, $3ymm -> smull %dc %$3ymm@uint16[16] %$2ymm\n      [$1ea[+0],$1ea[+2],$1ea[+4],$1ea[+6],\n       $1ea[+8],$1ea[+10],$1ea[+12],$1ea[+14],\n       $1ea[+16],$1ea[+18],$1ea[+20],$1ea[+22],\n       $1ea[+24],$1ea[+26],$1ea[+28],$1ea[+30]]
+#! vpmullw $1ea, $2ymm, $3ymm -> smull %dc %$3ymm@uint16[16] %$2ymm [$1ea[[0:32:2]]]
 #! vpmulhw $1ymm, $2ymm, $3ymm -> smull %$3ymm@sint16[16] %dc %$2ymm %$1ymm
-#! vpmulhw $1ea, $2ymm, $3ymm -> smull %$3ymm@sint16[16] %dc %$2ymm\n      [$1ea[+0],$1ea[+2],$1ea[+4],$1ea[+6],\n       $1ea[+8],$1ea[+10],$1ea[+12],$1ea[+14],\n       $1ea[+16],$1ea[+18],$1ea[+20],$1ea[+22],\n       $1ea[+24],$1ea[+26],$1ea[+28],$1ea[+30]]
+#! vpmulhw $1ea, $2ymm, $3ymm -> smull %$3ymm@sint16[16] %dc %$2ymm [$1ea[[0:32:2]]]
 #! vpor $1xmm, $2xmm, $3xmm -> or %$3xmm@uint64[2] %$2xmm %$1xmm
 #! vpor $1ymm, $2ymm, $3ymm -> or %$3ymm@uint64[4] %$2ymm %$1ymm
 #! vpxor $1xmm, $2xmm, $3xmm -> xor %$3xmm@uint64[2] %$2xmm %$1xmm
@@ -139,6 +149,49 @@
 #! vpsllq $1c, $2ymm, $3ymm -> split %dc %$2ymmL %$2ymm@uint64[4] `64 - $1c`;\nbroadcast %off 4 [$1c@uint64]; shl %$3ymm %$2ymmL %off
 #! vpsrlq $1c, $2xmm, $3xmm -> split %$3xmm %dc %$2xmm@uint64[2] $1c
 #! vpsrlq $1c, $2ymm, $3ymm -> split %$3ymm %dc %$2ymm@uint64[4] $1c
+# Each lane shifts by its own count, taken from the first operand. The else
+# branch is what the hardware does with a count of 64 or more, so the case is
+# total and asserts nothing about the counts a program uses.
+#! vpsllvq $1ymm, $2ymm, $3ymm ->                                             \
+#!   mov %$3ymm@uint64[4] %$2ymm;                                             \
+#!   repeat i = [0 .. 3] {                                                    \
+#!     case n = %$1ymm[$i] [0 .. 63] {                                        \
+#!       split dc, shlvL, %$2ymm[$i], (64 - $n);                              \
+#!       shl shlv, shlvL, $n@uint64;                                          \
+#!       mov %$3ymm[$i], shlv                                                 \
+#!     } else {                                                               \
+#!       mov %$3ymm[$i], 0@uint64                                             \
+#!     }                                                                      \
+#!   }
+#! vpsrlvq $1ymm, $2ymm, $3ymm ->                                             \
+#!   mov %$3ymm@uint64[4] %$2ymm;                                             \
+#!   repeat i = [0 .. 3] {                                                    \
+#!     case n = %$1ymm[$i] [0 .. 63] {                                        \
+#!       split shrv, dc, %$2ymm[$i], $n;                                      \
+#!       mov %$3ymm[$i], shrv                                                 \
+#!     } else {                                                               \
+#!       mov %$3ymm[$i], 0@uint64                                             \
+#!     }                                                                      \
+#!   }
+# Each lane shifts by its own count, taken from the first operand. Counts of 64
+# and above, which the hardware turns into zero, are outside the case, so the
+# assertion it emits fails if a count ever reaches that far.
+#! vpsllvq $1ymm, $2ymm, $3ymm ->                                             \
+#!   case n = %$1ymm[0] [0 .. 63]                                             \
+#!     { split dc shlvL %$2ymm[0] (64 - $n); shl shlv0 shlvL $n@uint64 };     \
+#!   case n = %$1ymm[1] [0 .. 63]                                             \
+#!     { split dc shlvL %$2ymm[1] (64 - $n); shl shlv1 shlvL $n@uint64 };     \
+#!   case n = %$1ymm[2] [0 .. 63]                                             \
+#!     { split dc shlvL %$2ymm[2] (64 - $n); shl shlv2 shlvL $n@uint64 };     \
+#!   case n = %$1ymm[3] [0 .. 63]                                             \
+#!     { split dc shlvL %$2ymm[3] (64 - $n); shl shlv3 shlvL $n@uint64 };     \
+#!   mov %$3ymm@uint64[4] [shlv0, shlv1, shlv2, shlv3]
+#! vpsrlvq $1ymm, $2ymm, $3ymm ->                                             \
+#!   case n = %$1ymm[0] [0 .. 63] { split shrv0 dc %$2ymm[0] $n };            \
+#!   case n = %$1ymm[1] [0 .. 63] { split shrv1 dc %$2ymm[1] $n };            \
+#!   case n = %$1ymm[2] [0 .. 63] { split shrv2 dc %$2ymm[2] $n };            \
+#!   case n = %$1ymm[3] [0 .. 63] { split shrv3 dc %$2ymm[3] $n };            \
+#!   mov %$3ymm@uint64[4] [shrv0, shrv1, shrv2, shrv3]
 #! vpsllw $1c, $2xmm, $3xmm -> split %dc %$2xmmL %$2xmm@uint16[8] `16 - $1c`;\nbroadcast %off 8 [$1c@uint16]; shl %$3xmm %$2xmmL %off
 #! vpsllw $1c, $2ymm, $3ymm -> split %dc %$2ymmL %$2ymm@uint16[16] `16 - $1c`;\nbroadcast %off 16 [$1c@uint16]; shl %$3ymm %$2ymmL %off
 #! vpsraw $1c, $2xmm, $3xmm -> ssplit %$3xmm %dc %$2xmm@sint16[8] $1c
