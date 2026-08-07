@@ -301,7 +301,7 @@ let eneg e = Eunop (Eneg, e)
 let eneg' e =
   match e with
   | Eunop (Eneg, e) -> e
-  | _ -> e
+  | _ -> eneg e
 let eadd e1 e2 = Ebinop (Eadd, e1, e2)
 let eadd' e1 e2 =
   match e1, e2 with
