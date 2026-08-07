@@ -518,7 +518,7 @@ let string_of_tagged_instr ?typ:(typ=false) i =
   | TIassert (es, rs) ->
      let empty_es = SM.is_empty es in
      let empty_rs = SM.is_empty rs in
-     if empty_es && empty_es then "nop"
+     if empty_es && empty_rs then "nop"
      else if empty_es then "rassert " ^ string_of_tagged_rbexp_prove_with ~typ:typ rs
      else if empty_rs then "eassert " ^ string_of_tagged_ebexp_prove_with ~typ:typ es
      else "assert " ^ string_of_tagged_bexp_prove_with ~typ:typ (es, rs)
