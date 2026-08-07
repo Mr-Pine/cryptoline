@@ -144,7 +144,7 @@ let run_singular header ifile ofile =
       |> List.filter (fun s -> s <> "")
     in
     let cmd_list = [!singular_path; "-q"] @ extra_args @ [ifile] in
-    Array.of_list cmd_list in
+    limit_memory_cmd_array (Array.of_list cmd_list) in
   let%lwt _ = Options.WithLwt.run ~ofile cmd_array in
   let t2 = Unix.gettimeofday() in
   let%lwt _ = Options.WithLwt.log_lock () in
@@ -162,7 +162,7 @@ let run_singular header ifile ofile =
 let run_sage header ifile ofile =
   let t1 = Unix.gettimeofday() in
   let%lwt _ =
-    Options.WithLwt.unix (!sage_path ^ " " ^ !Options.Std.algebra_solver_args ^ " \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1") in
+    Options.WithLwt.unix (limit_memory_cmd (!sage_path ^ " " ^ !Options.Std.algebra_solver_args ^ " \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1")) in
   let t2 = Unix.gettimeofday() in
   let%lwt _ = Options.WithLwt.log_lock () in
   let%lwt _ = write_header_to_log header in
@@ -178,7 +178,7 @@ let run_sage header ifile ofile =
 
 let run_magma header ifile ofile =
   let t1 = Unix.gettimeofday() in
-  let%lwt _ = Options.WithLwt.unix (!magma_path ^ " " ^ !Options.Std.algebra_solver_args ^ " -b \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1") in
+  let%lwt _ = Options.WithLwt.unix (limit_memory_cmd (!magma_path ^ " " ^ !Options.Std.algebra_solver_args ^ " -b \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1")) in
   let t2 = Unix.gettimeofday() in
   let%lwt _ = Options.WithLwt.log_lock () in
   let%lwt _ = write_header_to_log header in
@@ -194,7 +194,7 @@ let run_magma header ifile ofile =
 
 let run_mathematica header ifile ofile =
   let t1 = Unix.gettimeofday() in
-  let%lwt _ = Options.WithLwt.unix (!mathematica_path ^ " " ^ !Options.Std.algebra_solver_args ^ " -file \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1") in
+  let%lwt _ = Options.WithLwt.unix (limit_memory_cmd (!mathematica_path ^ " " ^ !Options.Std.algebra_solver_args ^ " -file \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1")) in
   let t2 = Unix.gettimeofday() in
   let%lwt _ = Options.WithLwt.log_lock () in
   let%lwt _ = write_header_to_log header in
@@ -211,7 +211,7 @@ let run_mathematica header ifile ofile =
 let run_macaulay2 header ifile ofile =
   let t1 = Unix.gettimeofday() in
   let%lwt _ =
-    Options.WithLwt.unix (!macaulay2_path ^ " --script \"" ^ ifile ^ "\" " ^ !Options.Std.algebra_solver_args ^ " 1> \"" ^ ofile ^ "\" 2>&1") in
+    Options.WithLwt.unix (limit_memory_cmd (!macaulay2_path ^ " --script \"" ^ ifile ^ "\" " ^ !Options.Std.algebra_solver_args ^ " 1> \"" ^ ofile ^ "\" 2>&1")) in
   let t2 = Unix.gettimeofday() in
   let%lwt _ = Options.WithLwt.log_lock () in
   let%lwt _ = write_header_to_log header in
@@ -227,7 +227,7 @@ let run_macaulay2 header ifile ofile =
 
 let run_maple header ifile ofile =
   let t1 = Unix.gettimeofday() in
-  let%lwt _ = Options.WithLwt.unix (!maple_path ^ " -q " ^ !Options.Std.algebra_solver_args ^ " \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1") in
+  let%lwt _ = Options.WithLwt.unix (limit_memory_cmd (!maple_path ^ " -q " ^ !Options.Std.algebra_solver_args ^ " \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1")) in
   let t2 = Unix.gettimeofday() in
   let%lwt _ = Options.WithLwt.log_lock () in
   let%lwt _ = write_header_to_log header in
@@ -430,7 +430,7 @@ let write_isl_input ?comments ifile mipvars constr =
 let run_ppl header ifile ofile =
   let t1 = Unix.gettimeofday() in
   let%lwt _ =
-    Options.WithLwt.unix (!python_path ^ " -q \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1") in
+    Options.WithLwt.unix (limit_memory_cmd (!python_path ^ " -q \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1")) in
   let t2 = Unix.gettimeofday() in
   let%lwt _ = Options.WithLwt.log_lock () in
   let%lwt _ = write_header_to_log header in
@@ -447,7 +447,7 @@ let run_ppl header ifile ofile =
 let run_scip header ifile ofile =
   let t1 = Unix.gettimeofday() in
   let%lwt _ =
-    Options.WithLwt.unix (!python_path ^ " -q \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1") in
+    Options.WithLwt.unix (limit_memory_cmd (!python_path ^ " -q \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1")) in
   let t2 = Unix.gettimeofday() in
   let%lwt _ = Options.WithLwt.log_lock () in
   let%lwt _ = write_header_to_log header in
@@ -464,7 +464,7 @@ let run_scip header ifile ofile =
 let run_isl header ifile ofile =
   let t1 = Unix.gettimeofday() in
   let%lwt _ =
-    Options.WithLwt.unix (!python_path ^ " -q \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1") in
+    Options.WithLwt.unix (limit_memory_cmd (!python_path ^ " -q \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1")) in
   let t2 = Unix.gettimeofday() in
   let%lwt _ = Options.WithLwt.log_lock () in
   let%lwt _ = write_header_to_log header in
@@ -639,7 +639,7 @@ let is_constr_feasible ?comments headers ?(solver=(!Options.Std.algebra_solver))
          Lwt.return_unit in
        let%lwt _ =
          let t1 = Unix.gettimeofday() in
-         let%lwt _ = Options.WithLwt.unix (o.algsmt_path ^ "  \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1") in
+         let%lwt _ = Options.WithLwt.unix (limit_memory_cmd (o.algsmt_path ^ "  \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1")) in
          let t2 = Unix.gettimeofday() in
          let%lwt _ = Options.WithLwt.log_lock () in
          let%lwt _ = Options.WithLwt.trace ("Execution time of SMT Solver " ^ o.algsmt_path ^ ": " ^ Options.Std.string_of_running_time t1 t2) in
@@ -1166,7 +1166,7 @@ let verify_espec_single_conjunct_smt solver ?comments cut_headers vgen s =
       Lwt_io.close ch in
     let%lwt _ =
       let t1 = Unix.gettimeofday() in
-      let%lwt _ = Options.WithLwt.unix (solver.algsmt_path ^ "  \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1") in
+      let%lwt _ = Options.WithLwt.unix (limit_memory_cmd (solver.algsmt_path ^ "  \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1")) in
       let t2 = Unix.gettimeofday() in
       let%lwt _ =
         let%lwt _ = Options.WithLwt.log_lock () in

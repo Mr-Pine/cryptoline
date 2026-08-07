@@ -138,7 +138,7 @@ let write_maxima_input ?comments ifile vars gen p =
 
 let run_singular ifile ofile =
   let t1 = Unix.gettimeofday() in
-  unix (!singular_path ^ " -q " ^ !Options.Std.algebra_solver_args ^ " \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1");
+  unix (limit_memory_cmd (!singular_path ^ " -q " ^ !Options.Std.algebra_solver_args ^ " \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1"));
   let t2 = Unix.gettimeofday() in
   Options.Std.trace ("Execution time of Singular: " ^ Options.Std.string_of_running_time t1 t2);
   Options.Std.trace "OUTPUT FROM SINGULAR:";
@@ -147,7 +147,7 @@ let run_singular ifile ofile =
 
 let run_sage ifile ofile =
   let t1 = Unix.gettimeofday() in
-  unix (!sage_path ^ " " ^ !Options.Std.algebra_solver_args ^ " \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1");
+  unix (limit_memory_cmd (!sage_path ^ " " ^ !Options.Std.algebra_solver_args ^ " \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1"));
   let t2 = Unix.gettimeofday() in
   Options.Std.trace ("Execution time of Sage: " ^ Options.Std.string_of_running_time t1 t2);
   Options.Std.trace "OUTPUT FROM SAGE:";
@@ -156,7 +156,7 @@ let run_sage ifile ofile =
 
 let run_magma ifile ofile =
   let t1 = Unix.gettimeofday() in
-  unix (!magma_path ^ " -b " ^ !Options.Std.algebra_solver_args ^ " \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1");
+  unix (limit_memory_cmd (!magma_path ^ " -b " ^ !Options.Std.algebra_solver_args ^ " \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1"));
   let t2 = Unix.gettimeofday() in
   Options.Std.trace ("Execution time of Magma: " ^ Options.Std.string_of_running_time t1 t2);
   Options.Std.trace "OUTPUT FROM MAGMA:";
@@ -165,7 +165,7 @@ let run_magma ifile ofile =
 
 let run_mathematica ifile ofile =
   let t1 = Unix.gettimeofday() in
-  unix (!mathematica_path ^ " " ^ !Options.Std.algebra_solver_args ^ " -file \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1");
+  unix (limit_memory_cmd (!mathematica_path ^ " " ^ !Options.Std.algebra_solver_args ^ " -file \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1"));
   let t2 = Unix.gettimeofday() in
   Options.Std.trace ("Execution time of Mathematica: " ^ Options.Std.string_of_running_time t1 t2);
   Options.Std.trace "OUTPUT FROM MATHEMATICA:";
@@ -174,7 +174,7 @@ let run_mathematica ifile ofile =
 
 let run_macaulay2 ifile ofile =
   let t1 = Unix.gettimeofday() in
-  unix (!macaulay2_path ^ " --script \"" ^ ifile ^ "\" --silent " ^ !Options.Std.algebra_solver_args ^ " 1> \"" ^ ofile ^ "\" 2>&1");
+  unix (limit_memory_cmd (!macaulay2_path ^ " --script \"" ^ ifile ^ "\" --silent " ^ !Options.Std.algebra_solver_args ^ " 1> \"" ^ ofile ^ "\" 2>&1"));
   let t2 = Unix.gettimeofday() in
   Options.Std.trace ("Execution time of Macaulay2: " ^ Options.Std.string_of_running_time t1 t2);
   Options.Std.trace "OUTPUT FROM MACAULAY2:";
@@ -183,7 +183,7 @@ let run_macaulay2 ifile ofile =
 
 let run_maple ifile ofile =
   let t1 = Unix.gettimeofday() in
-  unix (!maple_path ^ " -q " ^ !Options.Std.algebra_solver_args ^ " \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1");
+  unix (limit_memory_cmd (!maple_path ^ " -q " ^ !Options.Std.algebra_solver_args ^ " \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1"));
   let t2 = Unix.gettimeofday() in
   Options.Std.trace ("Execution time of Maple: " ^ Options.Std.string_of_running_time t1 t2);
   Options.Std.trace "OUTPUT FROM MAPLE:";
@@ -356,7 +356,7 @@ let write_isl_input ?comments ifile mipvars constr =
 
 let run_ppl ifile ofile =
   let t1 = Unix.gettimeofday() in
-  let _ = unix (!python_path ^ " -q \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1") in
+  let _ = unix (limit_memory_cmd (!python_path ^ " -q \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1")) in
   let t2 = Unix.gettimeofday() in
   Options.Std.trace ("Execution time of PPLPY: " ^ Options.Std.string_of_running_time t1 t2);
   Options.Std.trace "OUTPUT FROM PPLPY:";
@@ -365,7 +365,7 @@ let run_ppl ifile ofile =
 
 let run_scip ifile ofile =
   let t1 = Unix.gettimeofday() in
-  let _ = unix (!python_path ^ " -q \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1") in
+  let _ = unix (limit_memory_cmd (!python_path ^ " -q \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1")) in
   let t2 = Unix.gettimeofday() in
   Options.Std.trace ("Execution time of PYSCIPOPT: " ^ Options.Std.string_of_running_time t1 t2);
   Options.Std.trace "OUTPUT FROM PYSCIPOPT:";
@@ -374,7 +374,7 @@ let run_scip ifile ofile =
 
 let run_isl ifile ofile =
   let t1 = Unix.gettimeofday() in
-  let _ = unix (!python_path ^ " -q \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1") in
+  let _ = unix (limit_memory_cmd (!python_path ^ " -q \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1")) in
   let t2 = Unix.gettimeofday() in
   Options.Std.trace ("Execution time of ISLPY: " ^ Options.Std.string_of_running_time t1 t2);
   Options.Std.trace "OUTPUT FROM ISLPY:";
@@ -499,7 +499,7 @@ let is_constr_feasible ?comments ?(solver=(!Options.Std.algebra_solver))
          Options.Std.trace "" in
        let _ =
          let t1 = Unix.gettimeofday() in
-         let _ = unix (o.algsmt_path ^ "  \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1") in
+         let _ = unix (limit_memory_cmd (o.algsmt_path ^ "  \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1")) in
          let t2 = Unix.gettimeofday() in
          Options.Std.trace ("Execution time of SMT Solver " ^ o.algsmt_path ^ ": " ^ Options.Std.string_of_running_time t1 t2);
          Options.Std.trace "OUTPUT FROM SMT SOLVER:";
@@ -1136,7 +1136,7 @@ let verify_espec_single_conjunct_smt solver ?comments vgen s =
       Options.Std.trace "" in
     let _ =
       let t1 = Unix.gettimeofday() in
-      let _ = unix (solver.algsmt_path ^ "  \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1") in
+      let _ = unix (limit_memory_cmd (solver.algsmt_path ^ "  \"" ^ ifile ^ "\" 1> \"" ^ ofile ^ "\" 2>&1")) in
       let t2 = Unix.gettimeofday() in
       Options.Std.trace ("Execution time of SMT Solver " ^ solver.algsmt_path ^ ": " ^ Options.Std.string_of_running_time t1 t2);
       Options.Std.trace "OUTPUT FROM SMT SOLVER:";
