@@ -559,6 +559,7 @@ type instr_t =
   | `TEASSERT of (tagged_ebexp_prove_with contextual)
   | `TRASSERT of (tagged_rbexp_prove_with contextual)
   | `TASSUME of (tagged_bexp contextual)
+  | `TSMT2CAS of (tagged_rbexp_prove_with contextual)
   | `TCUT of (tagged_bexp_prove_with contextual)
   | `TECUT of (tagged_ebexp_prove_with contextual)
   | `TRCUT of (tagged_rbexp_prove_with contextual)
@@ -1625,6 +1626,24 @@ let parse_trassert_at ctx lno trbexp_prove_with_list_token =
 
 let parse_tassume_at ctx lno tbexp_token =
   [lno, TIassume (tbexp_token ctx)]
+
+(* One text serves both tracks: what the range solver is asked to prove and what
+   the algebra is then allowed to assume are read off the same predicate, so
+   they cannot drift apart.  What the range solver proves is the predicate plus
+   the conditions that make its algebraic reading follow. *)
+let parse_smt2cas_at ctx lno trbexp_prove_with_list_token =
+  let lower (r, pwss) =
+    let (e, conds) =
+      try ebexp_of_rbexp r
+      with Untransferable reason ->
+        raise_at_line lno ("Cannot hand " ^ string_of_rbexp r
+                           ^ " to the algebra: " ^ reason) in
+    ((rands (r::conds), pwss), e) in
+  let lowered = SM.map (tmap (tmap lower)) (trbexp_prove_with_list_token ctx) in
+  [(lno, TIassert (tagged_ebexp_prove_with_empty (),
+                   SM.map (tmap (tmap fst)) lowered));
+   (lno, TIassume (SM.map (fun rpwss -> tmap snd (tflatten rpwss)) lowered,
+                   tagged_rbexp_singleton Options.Std.default_track rtrue))]
 
 let parse_tcut_at ctx lno tbexp_prove_with_list_token =
   let tb = tbexp_prove_with_list_token ctx in
@@ -2997,6 +3016,8 @@ let rec recognize_instr_at ctx lno (instr : instr_t) =
      parse_assume_at ctx lno bexp
   | `TASSUME bexp ->
      parse_tassume_at ctx lno bexp
+  | `TSMT2CAS rbexp_prove_with_list ->
+     parse_smt2cas_at ctx lno rbexp_prove_with_list
   | `CUT bexp_prove_with_list ->
      parse_cut_at ctx lno bexp_prove_with_list
   | `TCUT bexp_prove_with_list ->

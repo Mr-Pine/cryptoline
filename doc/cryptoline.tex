@@ -329,6 +329,21 @@ There are numerous \emph{instructions} supported by \cryptoline.
   interpretation of $a$.
 \item $\iassert$ tells \cryptoline to verify the specified predicate.
 \item $\iassume$ tells \cryptoline to assume the specified predicate.
+\item $\ismttocas\ r$ verifies the specified range predicate and then
+  assumes it when verifying algebraic properties.
+  A range predicate holds of bit-vectors and so is read modulo $2^w$,
+  while an algebraic predicate holds over the integers.
+  The two readings agree only where no operation in $r$ wraps, so
+  \cryptoline also verifies, for every arithmetic operation that the
+  types do not already keep in range, that it agrees with the same
+  operation carried out at a width wide enough to hold every value the
+  types allow.
+  Writing an $\iassert$ and an $\iassume$ by hand instead states the
+  predicate twice and verifies neither the agreement of the two
+  statements nor that of their readings.
+  Bit-wise operations, division, rotation, and right shifts have no
+  algebraic reading, and neither has a negated or disjunctive
+  predicate; $\ismttocas$ rejects them.
 \item $\icut\ e\ \band\ r$ is an alias of one $\iecut\ e$ followed by
   a $\ircut\ r$.
   For $\iecut$, \cryptoline verifies the specified algebraic predicate
@@ -338,8 +353,8 @@ There are numerous \emph{instructions} supported by \cryptoline.
   predicate and starts afresh with the predicate assumed when verifying
   range properties.
 \item $\ighost$ can introduce logical variables that must only be used
-  in specifications such as $\iassert$, $\iassume$, $\icut$, $\iecut$,
-  $\ircut$, and postconditions.
+  in specifications such as $\iassert$, $\iassume$, $\ismttocas$,
+  $\icut$, $\iecut$, $\ircut$, and postconditions.
   The predicate in a $\ighost$ instruction is always assumed.
 \item $\icall\ p(a_1, a_2, \ldots, a_n)$ invokes a defined
   procedure $p$ with the actual parameters $a_1, a_2, \ldots, a_n$
@@ -443,9 +458,10 @@ There are numerous \emph{instructions} supported by \cryptoline.
          & \mid & \pmb\ivpc\ \typ\ \lval\ \atom \\
          & \mid & \pmb\iassert\ \pred
          & \mid & \pmb\iassume\ \pred \\
-         & \mid & \pmb\icut\ \predclause
-         & \mid & \pmb\iecut\ \epredclause \\
-         & \mid & \pmb\ircut\ \rpredclause
+         & \mid & \pmb\ismttocas\ \rpredclause
+         & \mid & \pmb\icut\ \predclause \\
+         & \mid & \pmb\iecut\ \epredclause
+         & \mid & \pmb\ircut\ \rpredclause \\
          & \mid & \pmb\ighost\ \tvar_{\pmb,}^+\ \pmb{:}\ \pred \\
          & \mid & \pmb\icall\ \id\ \pmb{(}\ \atom_{\pmb,}^*\ \pmb{)}
          & \mid & \pmb\iinline\ \id\ \pmb{(}\ \atom_{\pmb,}^*\ \pmb{)} \\

@@ -1345,6 +1345,29 @@ val string_of_rspec : ?typ:bool -> rspec -> string
 (** [string_of_rspec ~typ:b s] is the string representation of a range specification [s]. If [b] is true, types will also be outputted. *)
 
 
+(** {1 Transferring a range predicate to the algebra} *)
+
+exception Untransferable of string
+(** Raised when a range predicate has no algebraic reading. The argument says why. *)
+
+val ebexp_of_rbexp : rbexp -> ebexp * rbexp list
+(** [ebexp_of_rbexp r] is [(e, cs)] where [e] reads the range predicate [r] over
+    the integers and [cs] are range predicates under which [r] entails [e].
+
+    A range predicate holds of bit-vectors and so is read modulo 2{^w}, while an
+    algebraic predicate holds over the integers. The two readings agree only
+    where no operation in [r] wraps, so [cs] states, for every arithmetic
+    operation that the types do not already keep in range, that it agrees with
+    the same operation carried out at a width wide enough to hold every value
+    the types allow. Verifying [r] and [cs] in the range specification is
+    therefore enough to assume [e] in the algebraic one.
+
+    Bit-wise operations, division, rotation, and right shifts have no algebraic
+    reading, and neither has a negated or disjunctive predicate. Raises
+    {!Untransferable} on those, and on an expression mixing a signed operand
+    with an unsigned one. *)
+
+
 (** {1 Variable Sets} *)
 
 val vars_eexp : eexp -> VS.t

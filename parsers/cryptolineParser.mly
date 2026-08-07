@@ -23,7 +23,7 @@
 %token ADD ADDS ADC ADCS SUB SUBC SUBB SBC SBCS SBB SBBS MUL MULS MULL MULJ UDIV SDIV SPLIT SPL
 %token UADD UADDS UADC UADCS USUB USUBC USUBB USBC USBCS USBB USBBS UMUL UMULS UMULL UMULJ USPLIT USPL
 %token SADD SADDS SADC SADCS SSUB SSUBC SSUBB SSBC SSBCS SSBB SSBBS SMUL SMULS SMULL SMULJ SSPLIT SSPL
-%token SHL SHLS SHR SHRS SAR SARS CSHL CSHLS CSHR CSHRS ROL ROR CONCAT SET CLEAR NONDET CMOV AND OR NOT CAST VPC JOIN ASSERT EASSERT RASSERT ASSUME GHOST
+%token SHL SHLS SHR SHRS SAR SARS CSHL CSHLS CSHR CSHRS ROL ROR CONCAT SET CLEAR NONDET CMOV AND OR NOT CAST VPC JOIN ASSERT EASSERT RASSERT ASSUME SMT2CAS GHOST
 %token CUT ECUT RCUT NOP SETEQ SETNE CASE ELSE REPEAT
 /* Logical Expressions */
 %token VARS NEG SQ EXT UEXT SEXT MOD UMOD SREM SMOD XOR ULT ULE UGT UGE SLT SLE SGT SGE SHR SAR
@@ -376,6 +376,7 @@ instr:
   | EASSERT tagged_ebexp_prove_with_list          { (get_line_start(), `TEASSERT $2) }
   | RASSERT tagged_rbexp_prove_with_list          { (get_line_start(), `TRASSERT $2) }
   | ASSUME tagged_bexp                            { (get_line_start(), `TASSUME $2) }
+  | SMT2CAS tagged_rbexp_prove_with_list          { (get_line_start(), `TSMT2CAS $2) }
   | CUT tagged_bexp_prove_with_list               { (get_line_start(), `TCUT $2) }
   | ECUT tagged_ebexp_prove_with_list             { (get_line_start(), `TECUT $2) }
   | RCUT tagged_rbexp_prove_with_list             { (get_line_start(), `TRCUT $2) }

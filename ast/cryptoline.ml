@@ -2220,6 +2220,214 @@ let string_of_rspec ?typ:(typ=false) s =
     (string_of_rbexp_prove_with ~typ:typ s.rspost)
 
 
+(** Transferring a range predicate to the algebra *)
+
+exception Untransferable of string
+
+(* How the bits of a range expression are read as an integer.  A constant reads
+   either way, so it takes the interpretation of whatever it is combined with. *)
+type interpretation = Iconst | Iunsigned | Isigned
+
+let join_interpretation i1 i2 =
+  match i1, i2 with
+  | Iconst, i
+    | i, Iconst -> i
+  | Iunsigned, Iunsigned -> Iunsigned
+  | Isigned, Isigned -> Isigned
+  | _, _ -> raise (Untransferable "a signed and an unsigned operand are mixed")
+
+(* The interpretation a range expression is read under on its own, before the
+   context it appears in has a say. *)
+let rec interpretation_of_rexp e =
+  match e with
+  | Rvar v -> if typ_is_signed (typ_of_var v) then Isigned else Iunsigned
+  | Rconst _ -> Iconst
+  | Runop (_, Rnegb, _) | Rsext _ -> Isigned
+  | Ruext _ | Rconcat _ -> Iunsigned
+  | Rbinop (_, Rshl, e1, _) -> interpretation_of_rexp e1
+  | Rbinop (_, (Radd | Rsub | Rmul), e1, e2) ->
+     join_interpretation (interpretation_of_rexp e1) (interpretation_of_rexp e2)
+  | Runop (_, op, _) ->
+     raise (Untransferable ("'" ^ string_of_runop op ^ "' has no algebraic reading"))
+  | Rbinop (_, op, _, _) ->
+     raise (Untransferable ("'" ^ string_of_rbinop op ^ "' has no algebraic reading"))
+
+let resolve_interpretation dflt i = if i = Iconst then dflt else i
+
+(* A lowered range expression.  [lexact] is a range expression of width
+   [lwidth], read as [lsigned] says, whose value is the integer [lval] whenever
+   [lconds] hold.  [llo] and [lhi] bound [lval] using nothing but the types of
+   the variables it is built from. *)
+type lowered = {
+    lval : eexp;
+    llo : Z.t;
+    lhi : Z.t;
+    lwidth : size;
+    lsigned : bool;
+    lexact : rexp;
+    lconds : rbexp list;
+  }
+
+let lextend w l =
+  if w = l.lwidth then l.lexact
+  else if l.lsigned then Rsext (l.lwidth, l.lexact, w - l.lwidth)
+  else Ruext (l.lwidth, l.lexact, w - l.lwidth)
+
+(* Whether every integer in [lo, hi] is representable in [w] bits *)
+let representable w i lo hi =
+  if i = Isigned then
+    Z.leq (Z.neg (Z.shift_left Z.one (w - 1))) lo
+    && Z.leq hi (Z.pred (Z.shift_left Z.one (w - 1)))
+  else Z.geq lo Z.zero && Z.lt hi (Z.shift_left Z.one w)
+
+(* The narrowest signed width that represents every integer in [lo, hi] *)
+let signed_width lo hi =
+  let bits n = if Z.sign n >= 0 then Z.numbits n else Z.numbits (Z.pred (Z.neg n)) in
+  1 + max (bits lo) (bits hi)
+
+(* [combine e i lo hi parts value mk] lowers the arithmetic range expression
+   [e], which is read under [i], stands for [value] in [lo, hi], and is computed
+   from the lowered [parts] by [mk] at whatever width is given to it.  When [e]
+   is too narrow to hold every value the types allow, the wider computation
+   comes with the condition that [e] agrees with it -- that is, that [e] does
+   not wrap. *)
+let combine e i lo hi parts value mk =
+  let w = size_of_rexp e in
+  let conds = List.concat_map (fun p -> p.lconds) parts in
+  if representable w i lo hi then
+    { lval = value; llo = lo; lhi = hi; lwidth = w; lsigned = (i = Isigned);
+      lexact = e; lconds = conds }
+  else
+    let width =
+      List.fold_left (fun acc p -> max acc p.lwidth)
+        (max (w + 1) (signed_width lo hi)) parts in
+    let exact = mk width in
+    let widened =
+      if i = Isigned then Rsext (w, e, width - w) else Ruext (w, e, width - w) in
+    { lval = value; llo = lo; lhi = hi; lwidth = width; lsigned = true;
+      lexact = exact; lconds = conds @ [Req (width, exact, widened)] }
+
+let rec lower_rexp i e =
+  match e with
+  | Rvar v ->
+     let ty = typ_of_var v in
+     { lval = evar v; llo = min_of_typ ty; lhi = max_of_typ ty;
+       lwidth = size_of_typ ty; lsigned = typ_is_signed ty;
+       lexact = e; lconds = [] }
+  | Rconst (w, n) ->
+     let n =
+       if i = Isigned && Z.geq n (Z.shift_left Z.one (w - 1))
+       then Z.sub n (Z.shift_left Z.one w) else n in
+     { lval = econst n; llo = n; lhi = n; lwidth = w; lsigned = (i = Isigned);
+       lexact = e; lconds = [] }
+  | Runop (_, Rnegb, e1) ->
+     let l1 = lower_rexp (resolve_interpretation Iunsigned (interpretation_of_rexp e1)) e1 in
+     combine e Isigned (Z.neg l1.lhi) (Z.neg l1.llo) [l1] (eneg' l1.lval)
+       (fun w -> Runop (w, Rnegb, lextend w l1))
+  | Rbinop (_, Radd, e1, e2) ->
+     let l1 = lower_rexp i e1 in
+     let l2 = lower_rexp i e2 in
+     combine e i (Z.add l1.llo l2.llo) (Z.add l1.lhi l2.lhi) [l1; l2]
+       (eadd' l1.lval l2.lval)
+       (fun w -> Rbinop (w, Radd, lextend w l1, lextend w l2))
+  | Rbinop (_, Rsub, e1, e2) ->
+     let l1 = lower_rexp i e1 in
+     let l2 = lower_rexp i e2 in
+     combine e i (Z.sub l1.llo l2.lhi) (Z.sub l1.lhi l2.llo) [l1; l2]
+       (esub' l1.lval l2.lval)
+       (fun w -> Rbinop (w, Rsub, lextend w l1, lextend w l2))
+  | Rbinop (_, Rmul, e1, e2) ->
+     let l1 = lower_rexp i e1 in
+     let l2 = lower_rexp i e2 in
+     let corners = [Z.mul l1.llo l2.llo; Z.mul l1.llo l2.lhi;
+                    Z.mul l1.lhi l2.llo; Z.mul l1.lhi l2.lhi] in
+     combine e i (List.fold_left Z.min (List.hd corners) corners)
+       (List.fold_left Z.max (List.hd corners) corners) [l1; l2]
+       (emul' l1.lval l2.lval)
+       (fun w -> Rbinop (w, Rmul, lextend w l1, lextend w l2))
+  | Rbinop (sw, Rshl, e1, Rconst (_, k)) when Z.lt k (Z.of_int sw) ->
+     let l1 = lower_rexp i e1 in
+     let m = Z.shift_left Z.one (Z.to_int k) in
+     combine e i (Z.mul l1.llo m) (Z.mul l1.lhi m) [l1] (emul' l1.lval (econst m))
+       (fun w -> Rbinop (w, Rmul, lextend w l1, Rconst (w, m)))
+  | Rbinop (_, Rshl, _, _) ->
+     raise (Untransferable ("only a shift by a constant smaller than the width has "
+                            ^ "an algebraic reading, unlike " ^ string_of_rexp e))
+  | Ruext (_, e1, _) -> lower_unsigned e1
+  | Rsext (w, e1, _) ->
+     let l1 = lower_rexp (resolve_interpretation Isigned (interpretation_of_rexp e1)) e1 in
+     let top = Z.shift_left Z.one (w - 1) in
+     if Z.lt l1.lhi top then l1
+     else
+       (* the sign bit of an unsigned operand has to be clear for the two
+          readings to agree *)
+       { l1 with lhi = Z.min l1.lhi (Z.pred top);
+                 lconds = l1.lconds @ [Rcmp (w, Rult, e1, Rconst (w, top))] }
+  | Rconcat (_, w2, e1, e2) ->
+     let l1 = lower_unsigned e1 in
+     let l2 = lower_unsigned e2 in
+     let m = Z.shift_left Z.one w2 in
+     combine e Iunsigned (Z.add (Z.mul l1.llo m) l2.llo)
+       (Z.add (Z.mul l1.lhi m) l2.lhi) [l1; l2]
+       (eadd' (emul' l1.lval (econst m)) l2.lval)
+       (fun w -> Rbinop (w, Radd,
+                         Rbinop (w, Rmul, lextend w l1, Rconst (w, m)),
+                         lextend w l2))
+  | Runop (_, op, _) ->
+     raise (Untransferable ("'" ^ string_of_runop op ^ "' has no algebraic reading"))
+  | Rbinop (_, op, _, _) ->
+     raise (Untransferable ("'" ^ string_of_rbinop op ^ "' has no algebraic reading"))
+
+(* Lower [e] and read its bits as unsigned *)
+and lower_unsigned e =
+  let l = lower_rexp (resolve_interpretation Iunsigned (interpretation_of_rexp e)) e in
+  if Z.geq l.llo Z.zero then l
+  else
+    (* a signed operand has to be non-negative for the two readings to agree *)
+    { l with llo = Z.zero;
+             lconds = l.lconds
+                      @ [Rcmp (size_of_rexp e, Rsge, e, Rconst (size_of_rexp e, Z.zero))] }
+
+let ecmpop_of_rcmpop op =
+  match op with
+  | Rult | Rslt -> Elt
+  | Rule | Rsle -> Ele
+  | Rugt | Rsgt -> Egt
+  | Ruge | Rsge -> Ege
+
+let rec lower_rbexp e =
+  match e with
+  | Rtrue -> (Etrue, [])
+  | Req (_, e1, e2) ->
+     let i =
+       resolve_interpretation Iunsigned
+         (join_interpretation (interpretation_of_rexp e1) (interpretation_of_rexp e2)) in
+     let l1 = lower_rexp i e1 in
+     let l2 = lower_rexp i e2 in
+     (Eeq (l1.lval, l2.lval), l1.lconds @ l2.lconds)
+  | Rcmp (_, op, e1, e2) ->
+     let compared = (match op with Rslt | Rsle | Rsgt | Rsge -> Isigned | _ -> Iunsigned) in
+     let i =
+       resolve_interpretation compared
+         (join_interpretation (interpretation_of_rexp e1) (interpretation_of_rexp e2)) in
+     let _ =
+       if i <> compared then
+         raise (Untransferable
+                  ("the comparison is " ^ (if compared = Isigned then "signed" else "unsigned")
+                   ^ " but its operands are read the other way round")) in
+     let l1 = lower_rexp i e1 in
+     let l2 = lower_rexp i e2 in
+     (Ecmp (ecmpop_of_rcmpop op, l1.lval, l2.lval), l1.lconds @ l2.lconds)
+  | Rand (e1, e2) ->
+     let (b1, c1) = lower_rbexp e1 in
+     let (b2, c2) = lower_rbexp e2 in
+     (eand b1 b2, c1 @ c2)
+  | Rneg _ -> raise (Untransferable "the algebra has no negation")
+  | Ror _ -> raise (Untransferable "the algebra has no disjunction")
+
+let ebexp_of_rbexp e = lower_rbexp e
+
+
 (** Variable Sets *)
 
 let rec vars_eexp_acc e acc =
