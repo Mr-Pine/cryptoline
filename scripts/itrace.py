@@ -164,7 +164,7 @@ def print_rodata_values(args, addr, fmt, values):
                   .format(width), file=out)
         insn = "rodata_mov{0:d} {1:s},%%{2:s}".format(width, value,
                                                       label(args, address))
-        print("\t{0:48s}# .rodata at 0x{1:x}".format(insn, address), file=out)
+        print("\t{0:48s} # .rodata at 0x{1:x}".format(insn, address), file=out)
 
 def trace():
     frame = gdb.newest_frame()
