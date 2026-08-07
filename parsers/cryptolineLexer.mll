@@ -97,6 +97,7 @@
               "eassert"                    , EASSERT;
               "rassert"                    , RASSERT;
               "assume"                     , ASSUME;
+              "smt2cas"                    , SMT2CAS;
               "cut"                        , CUT;
               "ecut"                       , ECUT;
               "rcut"                       , RCUT;
