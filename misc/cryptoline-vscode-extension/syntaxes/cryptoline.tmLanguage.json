@@ -220,7 +220,7 @@
             "patterns": [
                 { "include": "#common" },
                 {
-                    "begin": "\\b(assert|assume|(e|r)?cut)\\b",
+                    "begin": "\\b(assert|assume|smt2cas|(e|r)?cut)\\b",
                     "beginCaptures": {
                         "1": { "name": "keyword.control" }
                     },
