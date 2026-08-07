@@ -321,6 +321,38 @@ val abs_interp : bool ref
 (** enable abstract interpretation for range *)
 
 
+(** {1 Memory Limit of Solvers} *)
+
+val default_solver_memory_ratio : float
+(** the default ratio of the remaining memory that a CAS or an SMT solver
+    is allowed to use *)
+
+val solver_memory_ratio : float ref
+(** the ratio of the remaining memory that a CAS or an SMT solver is
+    allowed to use *)
+
+val remaining_memory_in_kb : unit -> int option
+(** the remaining memory of the system in kilobytes, [None] if it cannot
+    be determined *)
+
+val solver_memory_limit_in_kb : unit -> int option
+(** the memory limit of a solver process in kilobytes, that is,
+    [solver_memory_ratio] of the memory remaining when the limit is first
+    requested. It is [None] if the remaining memory cannot be determined.
+    The limit is computed once and cached, and may be requested from
+    several threads. *)
+
+val limit_memory_cmd : string -> string
+(** [limit_memory_cmd cmd] returns the shell command [cmd] prefixed with the
+    setting of the memory limit. The command is returned unchanged if the
+    memory limit is unknown. *)
+
+val limit_memory_cmd_array : string array -> string array
+(** [limit_memory_cmd_array cmd_array] returns a command that runs
+    [cmd_array] with the memory limit applied. The command is returned
+    unchanged if the memory limit is unknown. *)
+
+
 (** {1 Logging} *)
 
 val verbose : bool ref

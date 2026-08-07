@@ -166,7 +166,7 @@ let run_singular headers ifile ofile =
   let t1 = Unix.gettimeofday() in
   let extra_args = args_from_string !Options.Std.algebra_solver_args in
   let cmd_list = [ !singular_path; "-q" ] @ extra_args @ [ifile] in
-  let cmd_array = Array.of_list cmd_list in
+  let cmd_array = limit_memory_cmd_array (Array.of_list cmd_list) in
   let _ = DomainsTasks.exec_cmd ~ofile cmd_array in
   let t2 = Unix.gettimeofday() in
   if !debug then begin
@@ -187,7 +187,7 @@ let run_sage headers ifile ofile =
   let t1 = Unix.gettimeofday() in
   let extra_args = args_from_string !Options.Std.algebra_solver_args in
   let cmd_list = [ !sage_path ] @ extra_args @ [ ifile ] in
-  let cmd_array = Array.of_list cmd_list in
+  let cmd_array = limit_memory_cmd_array (Array.of_list cmd_list) in
   let _ = DomainsTasks.exec_cmd ~ofile cmd_array in
   let t2 = Unix.gettimeofday() in
   if !debug then begin
@@ -209,7 +209,7 @@ let run_magma headers ifile ofile =
   let t1 = Unix.gettimeofday() in
   let extra_args = args_from_string !Options.Std.algebra_solver_args in
   let cmd_list = [ !sage_path ] @ extra_args @ [ ifile ] in
-  let cmd_array = Array.of_list cmd_list in
+  let cmd_array = limit_memory_cmd_array (Array.of_list cmd_list) in
   let _ = DomainsTasks.exec_cmd ~ofile cmd_array in
   let t2 = Unix.gettimeofday() in
   if !debug then begin
@@ -231,7 +231,7 @@ let run_mathematica headers ifile ofile =
   let t1 = Unix.gettimeofday() in
   let extra_args = args_from_string !Options.Std.algebra_solver_args in
   let cmd_list = [ !sage_path ] @ extra_args @ [ ifile ] in
-  let cmd_array = Array.of_list cmd_list in
+  let cmd_array = limit_memory_cmd_array (Array.of_list cmd_list) in
   let _ = DomainsTasks.exec_cmd ~ofile cmd_array in
   let t2 = Unix.gettimeofday() in
   if !debug then begin
@@ -253,7 +253,7 @@ let run_macaulay2 headers ifile ofile =
   let t1 = Unix.gettimeofday() in
   let extra_args = args_from_string !Options.Std.algebra_solver_args in
   let cmd_list = [ !singular_path; "-q" ] @ extra_args @ [ifile] in
-  let cmd_array = Array.of_list cmd_list in
+  let cmd_array = limit_memory_cmd_array (Array.of_list cmd_list) in
   let _ = DomainsTasks.exec_cmd ~ofile cmd_array in
   let t2 = Unix.gettimeofday() in
   if !debug then begin
@@ -275,7 +275,7 @@ let run_maple headers ifile ofile =
   let t1 = Unix.gettimeofday() in
   let extra_args = args_from_string !Options.Std.algebra_solver_args in
   let cmd_list = [ !singular_path; "-q" ] @ extra_args @ [ifile] in
-  let cmd_array = Array.of_list cmd_list in
+  let cmd_array = limit_memory_cmd_array (Array.of_list cmd_list) in
   let _ = DomainsTasks.exec_cmd ~ofile cmd_array in
   let t2 = Unix.gettimeofday() in
   if !debug then begin
@@ -447,7 +447,7 @@ let write_smt_input ~comments ifile vgen constr =
 let run_ppl ?timeout headers ifile ofile =
   let t1 = Unix.gettimeofday() in
   let cmd_list = [ !python_path; "-q"; ifile ] in
-  let cmd_array = Array.of_list cmd_list in
+  let cmd_array = limit_memory_cmd_array (Array.of_list cmd_list) in
   let _ = DomainsTasks.exec_cmd ?timeout ~ofile cmd_array in
   let t2 = Unix.gettimeofday() in
   if !debug then begin
@@ -469,7 +469,7 @@ let run_ppl ?timeout headers ifile ofile =
 let run_scip ?timeout headers ifile ofile =
   let t1 = Unix.gettimeofday() in
   let cmd_list = [ !python_path; "-q"; ifile ] in
-  let cmd_array = Array.of_list cmd_list in
+  let cmd_array = limit_memory_cmd_array (Array.of_list cmd_list) in
   let _ = DomainsTasks.exec_cmd ?timeout ~ofile cmd_array in
   let t2 = Unix.gettimeofday() in
   if !debug then begin
@@ -490,7 +490,7 @@ let run_scip ?timeout headers ifile ofile =
 let run_isl ?timeout headers ifile ofile =
   let t1 = Unix.gettimeofday() in
   let cmd_list = [ !python_path; "-q"; ifile ] in
-  let cmd_array = Array.of_list cmd_list in
+  let cmd_array = limit_memory_cmd_array (Array.of_list cmd_list) in
   let _ = DomainsTasks.exec_cmd ?timeout ~ofile cmd_array in
   let t2 = Unix.gettimeofday() in
   if !debug then begin
@@ -511,7 +511,7 @@ let run_isl ?timeout headers ifile ofile =
 let run_smt ?timeout headers algsmt_path ifile ofile =
   let t1 = Unix.gettimeofday() in
   let cmd_list = [ algsmt_path; ifile ] in
-  let cmd_array = Array.of_list cmd_list in
+  let cmd_array = limit_memory_cmd_array (Array.of_list cmd_list) in
   let _ = DomainsTasks.exec_cmd ?timeout ~ofile cmd_array in
   let t2 = Unix.gettimeofday() in
   if !debug then begin
@@ -694,7 +694,7 @@ let verify_espec_single_conjunct_smt solver ?comments:comments headers vgen s =
                 Out_channel.output_string ch smtlib  ) in
     let t1 = Unix.gettimeofday() in
     let cmd_list = [ solver.algsmt_path; ifile ] in
-    let cmd_array = Array.of_list cmd_list in
+    let cmd_array = limit_memory_cmd_array (Array.of_list cmd_list) in
     let _ = DomainsTasks.exec_cmd ~ofile cmd_array in
     let t2 = Unix.gettimeofday() in
     let _ = if !debug then begin

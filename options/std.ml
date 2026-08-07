@@ -428,6 +428,64 @@ let mip_safety_solver = ref ISL
 let safety_by_mip = ref false
 
 
+(** Memory Limit of Solvers *)
+
+let default_solver_memory_ratio = 0.2
+
+let solver_memory_ratio = ref default_solver_memory_ratio
+
+let remaining_memory_in_kb () =
+  let re = Str.regexp "^MemAvailable:[ \t]+\\([0-9]+\\)[ \t]+kB" in
+  let rec find ch =
+    match input_line ch with
+    | line -> if Str.string_match re line 0 then
+                (try Some (int_of_string (Str.matched_group 1 line))
+                 with _ -> None)
+              else find ch
+    | exception End_of_file -> None in
+  try In_channel.with_open_text "/proc/meminfo" find
+  with _ -> None
+
+(* The memory limit is computed only once so that all the solver processes
+   are limited in the same way, no matter how much memory the solvers
+   launched before them have already taken. Solvers are launched from
+   several threads, so the limit is cached in an atomic rather than in a
+   lazy value, which raises Lazy.Undefined when forced concurrently. *)
+let solver_memory_limit_cache : int option option Atomic.t = Atomic.make None
+
+let solver_memory_limit_in_kb () =
+  match Atomic.get solver_memory_limit_cache with
+  | Some limit -> limit
+  | None ->
+     let limit =
+       match remaining_memory_in_kb () with
+       | None -> None
+       | Some remaining ->
+          let limit = int_of_float (float_of_int remaining *. !solver_memory_ratio) in
+          if limit > 0 then Some limit else None in
+     let _ = Atomic.compare_and_set solver_memory_limit_cache None (Some limit) in
+     (* Another thread may have won the race. Use the cached limit so that
+        all the solver processes are limited in the same way. *)
+     (match Atomic.get solver_memory_limit_cache with
+      | Some limit -> limit
+      | None -> limit)
+
+let limit_memory_cmd cmd =
+  match solver_memory_limit_in_kb () with
+  | None -> cmd
+  | Some kb -> Printf.sprintf "ulimit -v %d 2> /dev/null; %s" kb cmd
+
+let limit_memory_cmd_array cmd_array =
+  match solver_memory_limit_in_kb () with
+  | None -> cmd_array
+  | Some kb ->
+     Array.append
+       [| "/bin/sh"; "-c";
+          Printf.sprintf "ulimit -v %d 2> /dev/null; exec \"$@\"" kb;
+          "sh" |]
+       cmd_array
+
+
 (** Logging *)
 
 let verbose = ref false

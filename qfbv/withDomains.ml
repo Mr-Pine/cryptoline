@@ -48,7 +48,7 @@ let run_smt_solver ?timeout:timeout ?(solver=(!range_solver)) headers ifile ofil
   let solver_args = String.split_on_char ' ' !range_solver_args |>
                       List.filter (fun s -> s <> "") in
   let cmd_list = [ solver ] @ solver_args @ [ ifile ] in
-  let cmd_array = Array.of_list cmd_list in
+  let cmd_array = limit_memory_cmd_array (Array.of_list cmd_list) in
   let _ = DomainsTasks.exec_cmd ?timeout ~ofile ~errfile cmd_array in
   let t2 = Unix.gettimeofday() in
   if !debug then begin
