@@ -8,7 +8,7 @@
              ;; (x-events '("at_rot_target" "at_target" "attach"))
              (x-keywords '("proc" "call" "ulimbs" "slimbs" "limbs"
                            "prove" "with" "all" "cuts" "assumes" "ghosts" "precondition"
-                           "assert" "assume" "smt2cas"
+                           "assert" "assume" "smt2cas" "record_fact"
                            "const"
                            "eq" "eqmod"
                            "vars" "neg" "sq" "ext" "uext" "sext"

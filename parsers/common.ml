@@ -560,6 +560,7 @@ type instr_t =
   | `TRASSERT of (tagged_rbexp_prove_with contextual)
   | `TASSUME of (tagged_bexp contextual)
   | `TSMT2CAS of (tagged_rbexp_prove_with contextual)
+  | `TRECORDFACT of (tagged_bexp_prove_with contextual)
   | `TCUT of (tagged_bexp_prove_with contextual)
   | `TECUT of (tagged_ebexp_prove_with contextual)
   | `TRCUT of (tagged_rbexp_prove_with contextual)
@@ -1644,6 +1645,18 @@ let parse_smt2cas_at ctx lno trbexp_prove_with_list_token =
                    SM.map (tmap (tmap fst)) lowered));
    (lno, TIassume (SM.map (fun rpwss -> tmap snd (tflatten rpwss)) lowered,
                    tagged_rbexp_singleton Options.Std.default_track rtrue))]
+
+(* A fact that is proved once and then relied on afterwards is written twice
+   today, once as an assertion and once as an assumption, with nothing tying the
+   two texts together.  record_fact takes the predicate once -- the same syntax,
+   track tags and prove-with clauses as assert -- and both the assertion and the
+   assumption are read off it, so the assumption cannot claim more than what was
+   proved.  Only the prove-with clauses, which say how to prove the predicate
+   rather than what it says, are dropped from the assumption. *)
+let parse_record_fact_at ctx lno tbexp_prove_with_list_token =
+  let tb = tbexp_prove_with_list_token ctx in
+  [(lno, TIassert tb);
+   (lno, TIassume (tagged_bexp_of_tagged_bexp_prove_with tb))]
 
 let parse_tcut_at ctx lno tbexp_prove_with_list_token =
   let tb = tbexp_prove_with_list_token ctx in
@@ -3019,6 +3032,8 @@ let rec recognize_instr_at ctx lno (instr : instr_t) =
      parse_tassume_at ctx lno bexp
   | `TSMT2CAS rbexp_prove_with_list ->
      parse_smt2cas_at ctx lno rbexp_prove_with_list
+  | `TRECORDFACT bexp_prove_with_list ->
+     parse_record_fact_at ctx lno bexp_prove_with_list
   | `CUT bexp_prove_with_list ->
      parse_cut_at ctx lno bexp_prove_with_list
   | `TCUT bexp_prove_with_list ->

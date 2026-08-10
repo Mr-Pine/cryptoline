@@ -494,6 +494,7 @@ type instr_t =
   | `TRASSERT of (tagged_rbexp_prove_with contextual)
   | `TASSUME of (tagged_bexp contextual)
   | `TSMT2CAS of (tagged_rbexp_prove_with contextual)
+  | `TRECORDFACT of (tagged_bexp_prove_with contextual)
   | `TCUT of (tagged_bexp_prove_with contextual)
   | `TECUT of (tagged_ebexp_prove_with contextual)
   | `TRCUT of (tagged_rbexp_prove_with contextual)

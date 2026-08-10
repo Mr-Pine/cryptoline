@@ -98,6 +98,7 @@
               "rassert"                    , RASSERT;
               "assume"                     , ASSUME;
               "smt2cas"                    , SMT2CAS;
+              "record_fact"                , RECORD_FACT;
               "cut"                        , CUT;
               "ecut"                       , ECUT;
               "rcut"                       , RCUT;

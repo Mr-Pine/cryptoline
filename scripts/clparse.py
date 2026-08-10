@@ -141,6 +141,7 @@ pp_instr_eassert = pp.Keyword("eassert")
 pp_instr_rassert = pp.Keyword("rassert")
 pp_instr_assume = pp.Keyword("assume")
 pp_instr_smt2cas = pp.Keyword("smt2cas")
+pp_instr_record_fact = pp.Keyword("record_fact")
 pp_instr_cut = pp.Keyword("cut")
 pp_instr_ecut = pp.Keyword("ecut")
 pp_instr_rcut = pp.Keyword("rcut")
@@ -598,6 +599,7 @@ pp_instr_nos = \
   | pp.Group(pp_instr_rassert)("annot") + pp.Group(pp_tagged_rbexp_prove_with_list)("rvs") \
   | pp.Group(pp_instr_assume)("annot") + pp.Group(pp_tagged_bexp)("rvs") \
   | pp.Group(pp_instr_smt2cas)("annot") + pp.Group(pp_tagged_rbexp_prove_with_list)("rvs") \
+  | pp.Group(pp_instr_record_fact)("annot") + pp.Group(pp_tagged_bexp_prove_with_list)("rvs") \
   | pp.Group(pp_instr_cut)("annot") + pp.Group(pp_tagged_bexp_prove_with_list)("rvs") \
   | pp.Group(pp_instr_ecut)("annot") + pp.Group(pp_tagged_ebexp_prove_with_list)("rvs") \
   | pp.Group(pp_instr_rcut)("annot") + pp.Group(pp_tagged_rbexp_prove_with_list)("rvs") \
