@@ -34,7 +34,7 @@ try:
     gdb             # gdb module is pre-loaded in gdb context
 except NameError:
     if len(sys.argv) < 3 or not os.access(sys.argv[1], os.X_OK):
-        print("Usage: {0:s} executable function [remote-target] [output] [--warn-conditional-branches] [--no-rodata-values] [-- args]".format(sys.argv[0]))
+        print("Usage: {0:s} executable function [remote-target] [output] [--error-conditional-branches | --unsound-warn-conditional-branches] [--no-rodata-values] [-- args]".format(sys.argv[0]))
         sys.exit(-1)
 
     prog = [sys.argv[1]]
@@ -43,9 +43,14 @@ except NameError:
     os.environ["TRACE_FUNCTION"] = sys.argv[2]
     os.environ["ITRACE_SCRIPT_DIR"] = os.path.dirname(os.path.abspath(sys.argv[0]))
     argv = sys.argv[3:]
-    if "--warn-conditional-branches" in argv:
-        argv.remove("--warn-conditional-branches")
-        os.environ["TRACE_WARN_BRANCHES"] = "1"
+    # what a conditional branch does: record its condition (the default),
+    # stop with an error, or only warn
+    if "--error-conditional-branches" in argv:
+        argv.remove("--error-conditional-branches")
+        os.environ["TRACE_BRANCH_POLICY"] = "error"
+    if "--unsound-warn-conditional-branches" in argv:
+        argv.remove("--unsound-warn-conditional-branches")
+        os.environ["TRACE_BRANCH_POLICY"] = "warn"
     if "--no-rodata-values" in argv:
         argv.remove("--no-rodata-values")
         os.environ["TRACE_NO_RODATA_VALUES"] = "1"
@@ -83,7 +88,7 @@ from itrace_arch import X86_64, ARM64, ARM32, MIPS, RISCV, \
 
 function = os.environ["TRACE_FUNCTION"]
 ea_only = "TRACE_EAONLY" in os.environ
-warn_only = "TRACE_WARN_BRANCHES" in os.environ
+branch_policy = os.environ.get("TRACE_BRANCH_POLICY", "record")
 rodata_values = "TRACE_NO_RODATA_VALUES" not in os.environ
 
 # the trace is written to 'out' rather than to sys.stdout, so that gdb
@@ -166,6 +171,22 @@ def print_rodata_values(args, addr, fmt, values):
                                                       label(args, address))
         print("\t{0:48s} # .rodata at 0x{1:x}".format(insn, address), file=out)
 
+conditions = []             # one condition name per conditional branch recorded
+
+def print_conditional_branch(insn, addr):
+    # The traced path stands for the whole function only where the branch
+    # could not have gone the other way, so leave that obligation in the
+    # trace for a translation rule to define and CryptoLine to prove.
+    condition = extr.condition(insn)
+    if not conditions:
+        print("# WARNING: recording the condition of every conditional branch, "
+              "which the translation has to define and CryptoLine to prove; "
+              "pass --error-conditional-branches to stop at one instead",
+              file=sys.stderr)
+    conditions.append(condition)
+    print("\t{0:48s} # conditional branch at 0x{1:x}"
+          .format("conditional_branch " + condition, addr), file=out)
+
 def trace():
     frame = gdb.newest_frame()
     arch = frame.architecture()
@@ -179,17 +200,20 @@ def trace():
         if b:                               # skip over flow control
             kind = extr.branch_kind(insns, b)
             if kind == BranchKind.CONDITIONAL:
-                if warn_only:
+                if branch_policy == "error":
+                    print("ERROR: conditional branch at 0x{0:x}: {1:s} -- traced "
+                          "path is not guaranteed to represent all inputs; drop "
+                          "--error-conditional-branches to record its condition "
+                          "instead"
+                          .format(int(frame.pc()), mnemonic), file=sys.stderr)
+                    out.flush()
+                    sys.exit(1)
+                elif branch_policy == "warn":
                     print("# WARNING: conditional branch at 0x{0:x}: {1:s} -- "
                           "traced path is not guaranteed to represent all inputs"
                           .format(int(frame.pc()), mnemonic), file=sys.stderr)
                 else:
-                    print("ERROR: conditional branch at 0x{0:x}: {1:s} -- traced "
-                          "path is not guaranteed to represent all inputs; pass "
-                          "--warn-conditional-branches to continue anyway"
-                          .format(int(frame.pc()), mnemonic), file=sys.stderr)
-                    out.flush()
-                    sys.exit(1)
+                    print_conditional_branch(insns[0], int(frame.pc()))
             if kind == BranchKind.RETURN:
                 print("\t#! <- SP = 0x{0:x}".format(int(frame.read_register("sp"))), file=out)
             gdb.execute("stepi", to_string=True)
@@ -281,5 +305,11 @@ out.flush()
 if rodata_known:
     print("# WARNING: {0:d} .rodata location(s) were moved into the trace"
           .format(len(rodata_known)), file=sys.stderr)
+
+if conditions:
+    print("# WARNING: {0:d} conditional branch(es) were recorded, each needing "
+          "a translation rule for: {1:s}"
+          .format(len(conditions), ", ".join(sorted(set(conditions)))),
+          file=sys.stderr)
 
 gdb.execute("delete breakpoints", to_string=True)

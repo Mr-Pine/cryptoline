@@ -200,14 +200,25 @@ class Extractor:
     def mnemonic(self, insn):
         return insn["asm"]
 
+    def branch_mnemonic(self, insn):
+        """The bare mnemonic of a branch, e.g. "jne" of "jne    0x401030"."""
+        return insn["asm"].split()[0]
+
+    def condition(self, insn):
+        """The name of the condition a conditional branch tests, after the
+        mnemonic, e.g. "jne_condition" for x86-64's "jne".
+        """
+        return re.sub(r'\W', '_', self.branch_mnemonic(insn)) + "_condition"
+
     def branch_kind(self, insns, b):
         """Classify a branch instruction already confirmed by isBranch().
 
         Returns a BranchKind. Calls and returns always take priority over
         the conditional-branch check (e.g. ARM's "bl" starts with "b" but
         must not be treated as a plain conditional/unconditional branch).
-        What to actually do about a CONDITIONAL result (error out vs. just
-        warn) is a policy decision for the caller, not this classifier.
+        What to do about a CONDITIONAL result (record its condition, error
+        out, or just warn) is a policy decision for the caller, not this
+        classifier.
         """
         if self.isFunctionCall(b):
             return BranchKind.CALL
@@ -413,6 +424,11 @@ class ARM32(Extractor):
             cond = mnemonic[1:]
             return cond not in ("", "al")
         return False
+
+    def branch_mnemonic(self, insn):
+        # ".n" and ".w" pick the Thumb encoding width, not the condition, so
+        # "bne", "bne.n" and "bne.w" share one condition
+        return re.sub(r'\.[nw]$', '', super().branch_mnemonic(insn))
 
     def getEA(self, insn, frame):
         mnemonic = insn["asm"]

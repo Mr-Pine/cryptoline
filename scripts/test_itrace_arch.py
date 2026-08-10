@@ -43,6 +43,12 @@ class X86_64BranchTest(unittest.TestCase):
     def test_non_branch_is_not_conditional(self):
         self.assertFalse(self.extr.isConditionalBranch(insns("mov    %rax,%rbx")))
 
+    def test_condition_is_named_after_the_mnemonic(self):
+        self.assertEqual(self.extr.condition(insns("jne    0x401030")[0]),
+                         "jne_condition")
+        self.assertEqual(self.extr.condition(insns("jbe    0x401030")[0]),
+                         "jbe_condition")
+
     def test_branch_kind(self):
         cases = {
             "jne    0x401030": BranchKind.CONDITIONAL,
@@ -72,6 +78,13 @@ class ARM64BranchTest(unittest.TestCase):
             with self.subTest(asm=asm):
                 self.assertFalse(self.extr.isConditionalBranch(insns(asm)))
 
+    def test_condition_name_has_no_dot(self):
+        # the condition ends up as a name, which "b.eq" is not
+        self.assertEqual(self.extr.condition(insns("b.eq   0x400abc")[0]),
+                         "b_eq_condition")
+        self.assertEqual(self.extr.condition(insns("cbz    x0, 0x400abc")[0]),
+                         "cbz_condition")
+
     def test_branch_kind_call_wins_over_conditional_lookalike(self):
         # "bl" starts with "b" but must classify as a call, not conditional
         asm = "bl     0x400000 <foo>"
@@ -94,6 +107,12 @@ class ARM32BranchTest(unittest.TestCase):
                     "bl     0x1000 <foo>", "bx     lr"):
             with self.subTest(asm=asm):
                 self.assertFalse(self.extr.isConditionalBranch(insns(asm)))
+
+    def test_encoding_width_does_not_split_a_condition(self):
+        for asm in ("bne    0x1030", "bne.n  0x1030", "bne.w  0x1030"):
+            with self.subTest(asm=asm):
+                self.assertEqual(self.extr.condition(insns(asm)[0]),
+                                 "bne_condition")
 
     def test_branch_kind_return(self):
         asm = "bx     lr"

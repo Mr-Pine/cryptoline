@@ -101,20 +101,34 @@ python3 "${ITRACE}" "${TMP}/fixture" branchy_max "${TMP}/branchy_default.trace" 
     >"${TMP}/branchy_default.log" 2>&1
 exit_code=$?
 ok=1
-[[ "${exit_code}" == "1" ]] || ok=0
-grep -q "ERROR: conditional branch" "${TMP}/branchy_default.log" || ok=0
-grep -q "#ret" "${TMP}/branchy_default.trace" 2>/dev/null && ok=0
-report "exits 1, errors on the conditional branch, trace does not complete" "${ok}" "${TMP}/branchy_default.log"
+[[ "${exit_code}" == "0" ]] || ok=0
+# the condition is named after the conditional jump, e.g. "jbe_condition"
+grep -qE "^[[:space:]]+conditional_branch j[a-z]+_condition" "${TMP}/branchy_default.trace" 2>/dev/null || ok=0
+grep -q "WARNING: recording the condition of every conditional branch" "${TMP}/branchy_default.log" || ok=0
+grep -q "conditional branch(es) were recorded" "${TMP}/branchy_default.log" || ok=0
+grep -q "#ret" "${TMP}/branchy_default.trace" 2>/dev/null || ok=0
+report "exits 0, records the branch condition, trace completes" "${ok}" "${TMP}/branchy_default.log"
 
-echo "branchy_max, --warn-conditional-branches"
+echo "branchy_max, --error-conditional-branches"
+python3 "${ITRACE}" "${TMP}/fixture" branchy_max "${TMP}/branchy_error.trace" \
+    --error-conditional-branches >"${TMP}/branchy_error.log" 2>&1
+exit_code=$?
+ok=1
+[[ "${exit_code}" == "1" ]] || ok=0
+grep -q "ERROR: conditional branch" "${TMP}/branchy_error.log" || ok=0
+grep -q "#ret" "${TMP}/branchy_error.trace" 2>/dev/null && ok=0
+report "exits 1, errors on the conditional branch, trace does not complete" "${ok}" "${TMP}/branchy_error.log"
+
+echo "branchy_max, --unsound-warn-conditional-branches"
 python3 "${ITRACE}" "${TMP}/fixture" branchy_max "${TMP}/branchy_warn.trace" \
-    --warn-conditional-branches >"${TMP}/branchy_warn.log" 2>&1
+    --unsound-warn-conditional-branches >"${TMP}/branchy_warn.log" 2>&1
 exit_code=$?
 ok=1
 [[ "${exit_code}" == "0" ]] || ok=0
 grep -q "WARNING: conditional branch" "${TMP}/branchy_warn.log" || ok=0
+grep -q "_condition" "${TMP}/branchy_warn.trace" 2>/dev/null && ok=0
 grep -q "#ret" "${TMP}/branchy_warn.trace" 2>/dev/null || ok=0
-report "exits 0, warns on the conditional branch, trace completes" "${ok}" "${TMP}/branchy_warn.log"
+report "exits 0, warns only, trace completes with no condition" "${ok}" "${TMP}/branchy_warn.log"
 
 echo "rodata_sum, default flags"
 python3 "${ITRACE}" "${TMP}/fixture" rodata_sum "${TMP}/rodata.trace" \
