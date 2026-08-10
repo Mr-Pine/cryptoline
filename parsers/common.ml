@@ -1911,10 +1911,11 @@ let parse_call_at ctx lno fname_token actuals_token =
     let to_prove_with (te, tr) = (tagged_ebexp_prove_with_of_tagged_ebexp te,
                                    tagged_rbexp_prove_with_of_tagged_rbexp tr) in
     TIassert (subst_tagged_bexp_prove_with em rm (to_prove_with f_def.fpre) |> fst) in
-  (* Make nondeterministic assignments to actual outputs *)
+  (* Make nondeterministic assignments to all written variables *)
+  let written_vars = List.rev_map snd (SM.bindings f_def.fvm) in
   let nondet_instrs =
     List.fold_left (fun res ovar -> (lno, TInondet ovar)::res)
-      [] (List.rev_map var_of_atom actual_outputs) in
+      [] written_vars in
   (* Assume postcondition (involving input and output parameters *)
   let assume_instr =
     (* change actual_inputs in actual_inouts to ghost_inouts *)
