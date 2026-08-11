@@ -186,7 +186,8 @@ type parsing_context =
     mutable cvecs: vectyp SM.t;     (** a map from vector name to its type *)
     mutable ccarries: var SM.t;     (** a map from carry name to carry variable *)
     mutable cghosts: var SM.t;      (** a map from ghost scalar name to ghost variable *)
-    mutable cvecghosts: vectyp SM.t (** a map from ghost vector name to vector type *)
+    mutable cvecghosts: vectyp SM.t;(** a map from ghost vector name to vector type *)
+    mutable cunions: SS.t           (** names of procedures defined by cases: they carry a contract but no body to verify *)
   }
 (** the type of parsing context *)
 
@@ -1245,6 +1246,14 @@ val parse_global_constant : lno -> string -> eexp contextual -> unit contextual
 
 val parse_proc : lno -> string -> var_kind list * var_kind list -> tagged_bexp option contextual -> (lno * instr_t) list -> tagged_bexp_prove_with option contextual -> unit contextual
 (** [parse_proc lno fname (args, outs) pre_tok instrs post_tok ] parses a procedure *)
+
+val parse_cases_proc : lno -> string -> var_kind list * var_kind list -> string list -> unit contextual
+(** [parse_cases_proc lno fname (args, outs) case_names] registers a bodiless
+    procedure whose contract is the case analysis over the named, previously
+    defined procedures: they must share formal parameters, postcondition and
+    algebraic precondition, and the registered precondition disjoins their
+    range preconditions.  Excluded from verification (there is no body); the
+    case procedures themselves are verified as usual. *)
 
 val parse_specs : unit contextual -> ((var list * var list) * Typecheck.Std.tagged_spec) SM.t
 (** [parse_specs procs_tok] returns a map from a procedure name to a tuple

@@ -231,7 +231,8 @@ type parsing_context =
     mutable cvecs: vectyp SM.t;     (* a map from vector name to its type *)
     mutable ccarries: var SM.t;     (* a map from carry name to carry variable *)
     mutable cghosts: var SM.t;      (* a map from ghost name to ghost variable *)
-    mutable cvecghosts: vectyp SM.t (* a map from ghost vector name to vector type *)
+    mutable cvecghosts: vectyp SM.t;(* a map from ghost vector name to vector type *)
+    mutable cunions: SS.t           (* names of procedures defined by cases: they carry a contract but no body to verify *)
   }
 
 type 'a contextual = parsing_context -> 'a
@@ -244,7 +245,8 @@ let empty_parsing_context () =
     cvecs = SM.empty;
     ccarries = SM.empty;
     cghosts = SM.empty;
-    cvecghosts = SM.empty
+    cvecghosts = SM.empty;
+    cunions = SS.empty
   }
 
 (* Add a scalar program variable to a parsing context *)
@@ -3963,11 +3965,114 @@ let parse_proc lno fname (arg_kinds, out_kinds) pre_tok instrs post_tok =
                                         fpost = g } ctx.cfuns in
     ()
 
+(*
+ * A cases procedure is a contract without a body of its own: case analysis
+ * over previously defined procedures that share formal parameters (names
+ * included -- the common postcondition is stated over them) and
+ * postcondition.  {A1} f {B} and {A2} f {B} justify {A1 \/ A2} f {B}, so
+ * the procedure registered here carries the cases' common postcondition,
+ * their common algebraic precondition (the algebraic track has no
+ * disjunction, so cases may differ only in the range track), and the
+ * disjunction of their range preconditions.  There is nothing of its own
+ * to verify -- the case procedures' bodies are verified as usual, and a
+ * call's assert/nondet/assume semantics cover the use -- so parse_specs
+ * excludes it from the returned specifications.  A call of the union
+ * nondets every variable any case writes (the union of the cases'
+ * variable maps).
+ *
+ * What this cannot check is that the case bodies jointly cover the
+ * contract: that inputs satisfying A1 really execute the code path body1
+ * records is a property of where the bodies came from (e.g. a trace with
+ * an assertion on the recorded branch condition), not of this file.
+ *)
+let parse_cases_proc lno fname (arg_kinds, out_kinds) case_names =
+  fun ctx ->
+  let _ =
+    if fname = Options.Std.main_proc_name
+    then raise_at_line lno ("The " ^ Options.Std.main_proc_name ^ " procedure cannot be defined by cases.") in
+  let _ =
+    if SM.mem fname ctx.cfuns
+    then raise_at_line lno ("The procedure " ^ fname ^ " is redefined.") in
+  let cases =
+    tmap (fun n ->
+        try SM.find n ctx.cfuns
+        with Not_found ->
+          raise_at_line lno ("The case procedure " ^ n ^ " of " ^ fname ^ " is undefined.")) case_names in
+  let first = List.hd cases in
+  (* Same formal parameters, everywhere *)
+  let args = scalar_vars_of_var_kinds arg_kinds in
+  let outs = scalar_vars_of_var_kinds out_kinds in
+  let _ =
+    let eq u v = eq_var u v && u.vtyp = v.vtyp in
+    List.iter (fun c ->
+        if not (List.length c.fargs = List.length args
+                && List.length c.fouts = List.length outs
+                && List.for_all2 eq c.fargs args
+                && List.for_all2 eq c.fouts outs)
+        then raise_at_line lno ("The case procedure " ^ c.fname
+                                ^ " does not have the formal parameters " ^ fname ^ " declares.")) cases in
+  (* The common postcondition *)
+  let post_str c = string_of_tagged_bexp_prove_with ~typ:true c.fpost in
+  let _ =
+    List.iter (fun c ->
+        if post_str c <> post_str first
+        then raise_at_line lno ("The case procedures " ^ first.fname ^ " and " ^ c.fname ^ " of " ^ fname
+                                ^ " do not have the same postcondition.")) cases in
+  (* The common algebraic precondition; the range preconditions disjoin *)
+  let epre_str c = string_of_tagged_bexp ~typ:true (fst c.fpre, SM.empty) in
+  let _ =
+    List.iter (fun c ->
+        if epre_str c <> epre_str first
+        then raise_at_line lno ("The case procedures " ^ first.fname ^ " and " ^ c.fname ^ " of " ^ fname
+                                ^ " do not have the same algebraic precondition"
+                                ^ " (cases may differ only in their range preconditions).")) cases in
+  let rpre =
+    let tracks =
+      List.fold_left (fun res c -> SS.union res (SM.bindings (snd c.fpre) |> tmap fst |> SS.of_list))
+        SS.empty cases in
+    SS.fold (fun track res ->
+        let of_case c = match SM.find_opt track (snd c.fpre) with
+          | Some rs -> rands rs
+          | None -> rtrue in
+        SM.add track [rors (tmap of_case cases)] res) tracks SM.empty in
+  (* As at a direct call of each case (parse_call_at): a formal input the
+     body assigns must not appear in the postcondition *)
+  let _ =
+    List.iter (fun c ->
+        check_updated_formal_inputs lno c.fargs (lvs_lined_tagged_program c.fbody)
+          (vars_tagged_bexp_prove_with c.fpost)) cases in
+  (* Everything any case writes *)
+  let fvm =
+    List.fold_left (fun res c ->
+        SM.union (fun n v1 v2 ->
+            if v1.vtyp = v2.vtyp then Some v1
+            else raise_at_line lno ("The case procedures of " ^ fname ^ " type the variable " ^ n
+                                    ^ " differently: " ^ string_of_typ v1.vtyp ^ " and "
+                                    ^ string_of_typ v2.vtyp ^ ".")) res c.fvm)
+      SM.empty cases in
+  (* Register with the first case's formal variables: the postcondition's
+     variables are theirs, and the formals check made them everyone's *)
+  let _ = ctx.cfuns <- SM.add fname { fname = fname;
+                                      farg_kinds = first.farg_kinds;
+                                      fout_kinds = first.fout_kinds;
+                                      fargs = first.fargs;
+                                      fouts = first.fouts;
+                                      fvm = fvm;
+                                      fym = SM.empty;
+                                      fgm = SM.empty;
+                                      fbody = [];
+                                      fpre = (fst first.fpre, rpre);
+                                      fpost = first.fpost } ctx.cfuns in
+  let _ = ctx.cunions <- SS.add fname ctx.cunions in
+  ()
+
 let parse_specs procs_tok =
   let inputs_spec_pair m = ((m.fargs, m.fouts), { Typecheck.Std.tspre = m.fpre; Typecheck.Std.tsprog = m.fbody; Typecheck.Std.tspost = m.fpost }) in
   let ctx = empty_parsing_context() in
   let _ = procs_tok ctx in
-  SM.fold (fun fn f fm -> SM.add fn (inputs_spec_pair f) fm) ctx.cfuns SM.empty
+  SM.fold (fun fn f fm ->
+      if SS.mem fn ctx.cunions then fm
+      else SM.add fn (inputs_spec_pair f) fm) ctx.cfuns SM.empty
 
 let parse_spec procs_tok =
   let ctx = empty_parsing_context() in

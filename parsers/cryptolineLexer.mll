@@ -105,6 +105,7 @@
               "ghost"                      , GHOST;
               "nop"                        , NOP;
               "case"                       , CASE;
+              "cases"                      , CASES;
               "else"                       , ELSE;
               "repeat"                     , REPEAT;
               "seteq"                      , SETEQ;

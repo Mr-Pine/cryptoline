@@ -24,7 +24,7 @@
 %token UADD UADDS UADC UADCS USUB USUBC USUBB USBC USBCS USBB USBBS UMUL UMULS UMULL UMULJ USPLIT USPL
 %token SADD SADDS SADC SADCS SSUB SSUBC SSUBB SSBC SSBCS SSBB SSBBS SMUL SMULS SMULL SMULJ SSPLIT SSPL
 %token SHL SHLS SHR SHRS SAR SARS CSHL CSHLS CSHR CSHRS ROL ROR CONCAT SET CLEAR NONDET CMOV AND OR NOT CAST VPC JOIN ASSERT EASSERT RASSERT ASSUME SMT2CAS RECORD_FACT GHOST
-%token CUT ECUT RCUT NOP SETEQ SETNE CASE ELSE REPEAT
+%token CUT ECUT RCUT NOP SETEQ SETNE CASE CASES ELSE REPEAT
 /* Logical Expressions */
 %token VARS NEG SQ EXT UEXT SEXT MOD UMOD SREM SMOD XOR ULT ULE UGT UGE SLT SLE SGT SGE SHR SAR
 /* Predicates */
@@ -83,6 +83,8 @@ procs:
 proc:
     PROC ID LPAR formals RPAR EQOP pre program post
                                                   { parse_proc (get_line_start()) $2 $4 $7 $8 $9 }
+  | PROC ID LPAR formals RPAR EQOP CASES ids const_stmt_suffix
+                                                  { parse_cases_proc (get_line_start()) $2 $4 $8 }
   | CONST ID EQOP eexp const_stmt_suffix          { parse_global_constant (get_line_start()) $2 $4 }
 ;
 
