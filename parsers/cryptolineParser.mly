@@ -55,8 +55,10 @@
 %start specs
 %start spec
 %start prog
+%start procs_only
 %type <((Ast.Cryptoline.var list * Ast.Cryptoline.var list) * Typecheck.Std.tagged_spec) Ast.Cryptoline.SM.t> specs
 %type <(Ast.Cryptoline.var list * Typecheck.Std.tagged_spec)> spec
+%type <unit Common.contextual> procs_only
 %type <Ast.MultiTrack.lined_tagged_program> prog
 
 %type <lval_t> lval
@@ -73,6 +75,13 @@ specs:
 
 spec:
   procs EOF                                       { parse_spec $1 }
+;
+
+/* One file's procedures, not yet applied to a parsing context: the driver
+   uses this to parse a file and everything it `include's into one context,
+   each file with its own lexbuf so errors name the right file and line. */
+procs_only:
+  procs EOF                                       { $1 }
 ;
 
 procs:
