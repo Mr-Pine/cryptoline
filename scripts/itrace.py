@@ -34,7 +34,7 @@ try:
     gdb             # gdb module is pre-loaded in gdb context
 except NameError:
     if len(sys.argv) < 3 or not os.access(sys.argv[1], os.X_OK):
-        print("Usage: {0:s} executable function [remote-target] [output] [--error-conditional-branches | --unsound-warn-conditional-branches] [--no-rodata-values] [-- args]".format(sys.argv[0]))
+        print("Usage: {0:s} executable function [remote-target] [output] [--error-conditional-branches | --unsound-warn-conditional-branches] [--no-rodata-values] [--stop-at SYM[,SYM...]] [-- args]".format(sys.argv[0]))
         sys.exit(-1)
 
     prog = [sys.argv[1]]
@@ -54,6 +54,16 @@ except NameError:
     if "--no-rodata-values" in argv:
         argv.remove("--no-rodata-values")
         os.environ["TRACE_NO_RODATA_VALUES"] = "1"
+    # functions to treat as opaque: run them, but record the call rather
+    # than their instructions, for a proof that composes their contract
+    if "--stop-at" in argv:
+        i = argv.index("--stop-at")
+        if i + 1 >= len(argv) or argv[i+1].startswith("-"):
+            print("--stop-at needs a comma-separated list of symbols",
+                  file=sys.stderr)
+            sys.exit(-1)
+        os.environ["TRACE_STOP_AT"] = argv[i+1]
+        del argv[i:i+2]
     if len(argv) > 0 and re.match(r'/dev/|:', argv[0]):
         os.environ["TRACE_TARGET_REMOTE"] = argv.pop(0)
     if len(argv) > 0 and argv[0] != "--":
@@ -90,6 +100,7 @@ function = os.environ["TRACE_FUNCTION"]
 ea_only = "TRACE_EAONLY" in os.environ
 branch_policy = os.environ.get("TRACE_BRANCH_POLICY", "record")
 rodata_values = "TRACE_NO_RODATA_VALUES" not in os.environ
+stop_at = set(filter(None, os.environ.get("TRACE_STOP_AT", "").split(",")))
 
 # the trace is written to 'out' rather than to sys.stdout, so that gdb
 # plugins loaded from the user's gdbinit can't leak their own output
@@ -171,6 +182,57 @@ def print_rodata_values(args, addr, fmt, values):
                                                       label(args, address))
         print("\t{0:48s} # .rodata at 0x{1:x}".format(insn, address), file=out)
 
+stopped = []                # one callee name per call left untraced
+
+# gdb annotates a branch target with the symbol it resolves to, e.g.
+# "call 0x55555555a2e0 <fd_r43x6_is_nonzero>".  Ask the operand rather than
+# the frame we land in: at the callee's first instruction gdb may already
+# report an *inlined* frame from inside it (the AVX-512 intrinsic wrappers
+# all show up that way), so frame.name() answers a different question than
+# "who is being called".  A "+offset" target is a jump into the middle of a
+# function, not a call to it, and deliberately does not match.
+calltarget = re.compile(r'<([^+>]+)>\s*$')
+
+def call_target_name(insn):
+    m = calltarget.search(insn["asm"])
+    return m.group(1) if m else None
+
+def stop_at_call(name, retaddr):
+    # A --stop-at callee: let it run, but record the call instead of its
+    # instructions.  Its body is meant to be proven once, standalone,
+    # against a contract that the caller's proof invokes -- so what the
+    # caller's trace needs is that the call happened and to whom, not what
+    # it did.  Whatever it wrote is the contract's business: CryptoLine's
+    # `call' makes every variable the callee writes nondet and then assumes
+    # only its postcondition, so omitting the body here cannot smuggle in
+    # an assumption the contract does not state.
+    #
+    # Run to the instruction after the call rather than `finish'ing the
+    # frame: at the callee's first instruction gdb may already be showing
+    # an inlined frame from inside it, and finishing *that* returns into
+    # the middle of the callee, which silently traces the body this is
+    # meant to skip.  The return address is not a guess -- it is the second
+    # instruction of the disassembly the loop already fetched.
+    # A plain `#' comment, not `#!': the latter introduces a translation
+    # spec, and this is a note to whatever reads the trace, not a rule.  It
+    # deliberately does not carry SP -- the caller's proof names the
+    # callee's arguments by the ABI registers it already sees, and a marker
+    # that looked like the `#! -> SP =' frame markers would be read as one.
+    stopped.append(name)
+    print("\t# stop-at {0:s} -- body not traced, prove it separately and "
+          "compose its contract".format(name), file=out)
+    # ...and don't let the traced function's own breakpoint catch a
+    # recursive call on the way through
+    gdb.execute("disable breakpoints", to_string=True)
+    gdb.execute("tbreak *0x{0:x}".format(retaddr), to_string=True)
+    gdb.execute("continue", to_string=True)
+    gdb.execute("enable breakpoints", to_string=True)
+    if int(gdb.newest_frame().pc()) != retaddr:
+        print("ERROR: stopping at {0:s} did not come back to 0x{1:x}"
+              .format(name, retaddr), file=sys.stderr)
+        out.flush()
+        sys.exit(1)
+
 conditions = []             # one condition name per conditional branch recorded
 
 def print_conditional_branch(insn, addr):
@@ -216,12 +278,22 @@ def trace():
                     print_conditional_branch(insns[0], int(frame.pc()))
             if kind == BranchKind.RETURN:
                 print("\t#! <- SP = 0x{0:x}".format(int(frame.read_register("sp"))), file=out)
+            # resolve before stepping: afterwards this instruction is gone
+            callee = retaddr = None
+            if kind == BranchKind.CALL:
+                callee = call_target_name(insns[0])
+                retaddr = int(insns[1]["addr"])
             gdb.execute("stepi", to_string=True)
             debug("After stepi 1")
             print("\t#{:s}".format(mnemonic), file=out)
             if kind == BranchKind.CALL:     # calls are handled recursively
                 debug("Call")
-                trace()
+                if callee in stop_at:
+                    stop_at_call(callee, retaddr)
+                    frame = gdb.newest_frame()
+                    arch = frame.architecture()
+                else:
+                    trace()
             elif kind == BranchKind.RETURN:
                 debug("Return")
                 return
@@ -311,5 +383,18 @@ if conditions:
           "a translation rule for: {1:s}"
           .format(len(conditions), ", ".join(sorted(set(conditions)))),
           file=sys.stderr)
+
+# say which --stop-at symbols never came up: asking to stop at a symbol that
+# is never called (a typo, or one the compiler inlined after all) otherwise
+# looks exactly like a trace that composed it, and silently proves less
+if stop_at:
+    print("# {0:d} call(s) left untraced: {1:s}"
+          .format(len(stopped), ", ".join(sorted(set(stopped)))),
+          file=sys.stderr)
+    unused = stop_at - set(stopped)
+    if unused:
+        print("# WARNING: --stop-at named {0:s}, which was never called -- "
+              "check the spelling, and that it was not inlined away"
+              .format(", ".join(sorted(unused))), file=sys.stderr)
 
 gdb.execute("delete breakpoints", to_string=True)
