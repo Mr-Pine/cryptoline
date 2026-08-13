@@ -203,9 +203,19 @@ def stop_at_call(name, retaddr):
     # against a contract that the caller's proof invokes -- so what the
     # caller's trace needs is that the call happened and to whom, not what
     # it did.  Whatever it wrote is the contract's business: CryptoLine's
-    # `call' makes every variable the callee writes nondet and then assumes
-    # only its postcondition, so omitting the body here cannot smuggle in
-    # an assumption the contract does not state.
+    # `inlinespec' asserts the callee's precondition, makes the actual
+    # outputs and everything the callee writes nondet, and assumes only its
+    # postcondition, so omitting the body here cannot smuggle in an
+    # assumption the contract does not state.
+    #
+    # `inlinespec' rather than `call': a call passes its inputs by value and
+    # gives the callee a namespace of its own, which is not how a call works
+    # here -- the callee shares the register file, so a register it clobbers
+    # has to become nondet in the caller, under the name the caller knows it
+    # by.  `inlinespec' substitutes the actuals for the formals and nondets
+    # what the callee writes, so it models that; `call' does not.  Nor can
+    # `inline' serve: there is no body to inline, which is the point of
+    # stopping here.
     #
     # Run to the instruction after the call rather than `finish'ing the
     # frame: at the callee's first instruction gdb may already be showing
@@ -220,7 +230,7 @@ def stop_at_call(name, retaddr):
     # that looked like the `#! -> SP =' frame markers would be read as one.
     stopped.append(name)
     print("\t# stop-at {0:s} -- body not traced, prove it separately and "
-          "compose its contract".format(name), file=out)
+          "compose its contract with inlinespec {0:s}".format(name), file=out)
     # ...and don't let the traced function's own breakpoint catch a
     # recursive call on the way through
     gdb.execute("disable breakpoints", to_string=True)
