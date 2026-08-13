@@ -396,7 +396,7 @@ let bv2z_instr aim vgen i =
       | Tuint w -> (vgen, aim, [bv2z_split c v (eadd (bv2z_atom a1) (bv2z_atom a2)) w]
                                @(carry_constr c), [])
       | Tsint w ->
-         let (vgen, d) = mk_newvar vgen (uint_t 1) in
+         let (vgen, d) = mk_newvar vgen (int_t 2) in
          (vgen, aim, [eeq (limbs w [evar v; evar d]) (eadd (bv2z_atom a1) (bv2z_atom a2))], []))
   | Iadc (v, a1, a2, y) ->
      (vgen, aim, [bv2z_assign v (eadd (eadd (bv2z_atom a1) (bv2z_atom a2)) (bv2z_atom y))], [])
@@ -405,7 +405,7 @@ let bv2z_instr aim vgen i =
       | Tuint w -> (vgen, aim, [bv2z_split c v (eadd (eadd (bv2z_atom a1) (bv2z_atom a2)) (bv2z_atom y)) w]
                                @(carry_constr c), [])
       | Tsint w ->
-         let (vgen, d) = mk_newvar vgen (uint_t 1) in
+         let (vgen, d) = mk_newvar vgen (int_t 2) in
          (vgen, aim, [eeq (limbs w [evar v; evar d]) (eadd (eadd (bv2z_atom a1) (bv2z_atom a2)) (bv2z_atom y))], []))
   | Isub (v, a1, a2) ->
      (vgen, aim, [bv2z_assign v (esub (bv2z_atom a1) (bv2z_atom a2))], [])
@@ -414,14 +414,14 @@ let bv2z_instr aim vgen i =
       | Tuint w -> (vgen, aim, [bv2z_join (evar v) (esub (econst Z.one) (evar c)) (esub (bv2z_atom a1) (bv2z_atom a2)) w]
                                @(carry_constr c), [])
       | Tsint w ->
-         let (vgen, d) = mk_newvar vgen (uint_t 1) in
+         let (vgen, d) = mk_newvar vgen (int_t 2) in
          (vgen, aim, [eeq (limbs w [evar v; evar d]) (esub (bv2z_atom a1) (bv2z_atom a2))], []))
   | Isubb (c, v, a1, a2) ->
      (match v.vtyp with
       | Tuint w -> (vgen, aim, [bv2z_join (evar v) (evar c) (esub (bv2z_atom a1) (bv2z_atom a2)) w]
                                @(carry_constr c), [])
       | Tsint w ->
-         let (vgen, d) = mk_newvar vgen (uint_t 1) in
+         let (vgen, d) = mk_newvar vgen (int_t 2) in
          (vgen, aim, [eeq (limbs w [evar v; evar d]) (esub (bv2z_atom a1) (bv2z_atom a2))], []))
   | Isbc (v, a1, a2, y) ->
      (vgen, aim, [bv2z_assign v (esub (esub (bv2z_atom a1) (bv2z_atom a2)) (esub (econst Z.one) (bv2z_atom y)))], [])
@@ -431,7 +431,7 @@ let bv2z_instr aim vgen i =
          (vgen, aim, [bv2z_join (evar v) (esub (econst Z.one) (evar c)) (esub (esub (bv2z_atom a1) (bv2z_atom a2)) (esub (econst Z.one) (bv2z_atom y))) w]
                 @(carry_constr c), [])
       | Tsint w ->
-         let (vgen, d) = mk_newvar vgen (uint_t 1) in
+         let (vgen, d) = mk_newvar vgen (int_t 2) in
          (vgen, aim, [eeq (limbs w [evar v; evar d]) (esub (esub (bv2z_atom a1) (bv2z_atom a2)) (esub (econst Z.one) (bv2z_atom y)))], []))
   | Isbb (v, a1, a2, y) ->
      (vgen, aim, [bv2z_assign v (esub (esub (bv2z_atom a1) (bv2z_atom a2)) (bv2z_atom y))], [])
@@ -440,7 +440,7 @@ let bv2z_instr aim vgen i =
       | Tuint w -> (vgen, aim, [bv2z_join (esub (esub (bv2z_atom a1) (bv2z_atom a2)) (bv2z_atom y)) (eneg (evar c)) (evar v) w]
                                @(carry_constr c), [])
       | Tsint w ->
-         let (vgen, d) = mk_newvar vgen (uint_t 1) in
+         let (vgen, d) = mk_newvar vgen (int_t 2) in
          (vgen, aim, [eeq (limbs w [evar v; evar d]) (esub (esub (bv2z_atom a1) (bv2z_atom a2)) (bv2z_atom y))], []))
   | Imul (v, a1, a2) ->
      (vgen, aim, [bv2z_assign v (emul (bv2z_atom a1) (bv2z_atom a2))], [])
