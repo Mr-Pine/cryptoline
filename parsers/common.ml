@@ -2088,6 +2088,13 @@ let parse_inline_at ctx lno fname_token actuals_token =
         raise_at_line lno (Printf.sprintf "Inline an undefined function '%s'." name) in
     name, def in
   let _ = check_inlined_func_name lno f_name in
+  (* A procedure defined by cases carries a contract but no body, so there is
+     nothing to inline: inlining one would silently expand to no instructions
+     at all and leave the actual outputs at their stale values. *)
+  let _ =
+    if SS.mem f_name ctx.cunions then
+      raise_at_line lno ("The procedure " ^ f_name ^ " is defined by cases and has no body to inline. "
+                         ^ "Use inlinespec " ^ f_name ^ " to compose its contract instead.") in
   (* Collect formal and actual parameters *)
   let formal_inputs, formal_args = f_def.fargs, f_def.fargs@@f_def.fouts in
   let actual_args = actuals_token ctx (tmap type_of_var_kind f_def.farg_kinds,
