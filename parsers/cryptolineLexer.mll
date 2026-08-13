@@ -147,6 +147,7 @@
               (********** Others **********)
               "proc"                       , PROC;
               "inline"                     , INLINE;
+              "inlinespec"                 , INLINESPEC;
               "call"                       , CALL;
               "ulimbs"                     , ULIMBS;
               "slimbs"                     , SLIMBS;
