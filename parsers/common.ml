@@ -3173,14 +3173,30 @@ and parse_case_at ctx lno cname subject_tok values body else_body =
   let else_branch =
     Option.map (branch (Printf.sprintf "_case%d_else" id) None) else_body in
   let _ = restore_definitions () in
-  (* Only what every branch assigns is an output. A nested case names its own
-     variables apart in each branch it is expanded in, and those drop out here. *)
+  (* A variable is an output of the case if every branch assigns it, or if it
+     existed before the case. In the latter case a branch that does not assign it
+     leaves it at its pre-case value, which must be merged rather than silently
+     dropped. A nested case names its own variables apart in each branch it is
+     expanded in; those are neither defined before nor assigned in every branch,
+     so they correctly stay local. *)
   let outs =
     let all = branches @ Option.to_list else_branch in
     match all with
     | [] -> VS.empty
     | (first, _, _)::rest ->
-       List.fold_left (fun acc (o, _, _) -> VS.inter acc o) first rest in
+       let inter = List.fold_left (fun acc (o, _, _) -> VS.inter acc o) first rest in
+       let union = List.fold_left (fun acc (o, _, _) -> VS.union acc o) first rest in
+       VS.union inter (VS.filter was_defined union) in
+  (* Every branch must define a shadow for every output so the merge below can
+     read it. A branch that does not assign an output keeps its pre-case value,
+     so seed its shadow from that value. Each such variable existed before the
+     case (it came from the was_defined filter above), so the read is sound. *)
+  let seed_missing (bouts, prog, rename) =
+    let missing = VS.diff outs bouts in
+    let seeds = VS.fold (fun v res -> (lno, TImov (rename v, Avar v)) :: res) missing [] in
+    (bouts, seeds @ prog, rename) in
+  let branches = List.map seed_missing branches in
+  let else_branch = Option.map seed_missing else_branch in
   let seteqs =
     List.map2 (fun c value -> (lno, TIseteq (c, subject, Aconst (ty, value))))
       selectors values in
