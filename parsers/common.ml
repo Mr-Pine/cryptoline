@@ -1926,11 +1926,15 @@ let parse_call_at ctx lno fname_token actuals_token =
     let to_prove_with (te, tr) = (tagged_ebexp_prove_with_of_tagged_ebexp te,
                                    tagged_rbexp_prove_with_of_tagged_rbexp tr) in
     TIassert (subst_tagged_bexp_prove_with em rm (to_prove_with f_def.fpre) |> fst) in
-  (* Make nondeterministic assignments to all written variables *)
+  (* Nondet every variable the callee writes: global clobbers by their shared name (fvm),
+     plus the formal outputs under their caller-side actual names. The callee names a formal
+     output by its formal name, which differs from the actual, so fvm alone would leave the
+     actual output holding its stale pre-call value. *)
   let written_vars = List.rev_map snd (SM.bindings f_def.fvm) in
+  let output_vars = List.rev_map var_of_atom actual_outputs in
   let nondet_instrs =
     List.fold_left (fun res ovar -> (lno, TInondet ovar)::res)
-      [] written_vars in
+      [] (List.rev_append output_vars written_vars) in
   (* Assume postcondition (involving input and output parameters *)
   let assume_instr =
     (* change actual_inputs in actual_inouts to ghost_inouts *)
