@@ -2013,6 +2013,16 @@ let parse_inlinespec_at ctx lno fname_token actuals_token =
          (ghost_vars, [(lno, ghost_instr)]) in
   (* Collect variables assigned in the procedure body, with formal variables substituted with actual variables *)
   let assigned_vars =
+    if SS.mem f_name ctx.cunions then
+      (* A procedure defined by cases has no body of its own: its fvm is the
+         union of what its cases write. Those names are the callee's, which is
+         what a clobbered global needs (the caller knows it by the same name);
+         the formals are excluded because an actual output is nondet below and
+         an actual input must keep its value. *)
+      let formals = VS.of_list formal_args in
+      SM.fold (fun _ v res -> if VS.mem v formals then res else VS.add v res)
+        f_def.fvm VS.empty
+    else
     let lvs = lvs_lined_tagged_program f_def.fbody in
     let _ = check_inline_assigned_formal_input_actual_variable lno lvs formal_inputs actual_inputs in
     let rename_local_vars vars =
