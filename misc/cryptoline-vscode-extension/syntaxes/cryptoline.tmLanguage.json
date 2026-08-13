@@ -279,7 +279,7 @@
                     "comment": "casting instuctions"
                 },
                 {
-                    "match": "\\b(call)\\b",
+                    "match": "\\b(call|inlinespec|inline)\\b",
                     "name": "entity.name.function.instruction.call",
                     "comment": "call instruction (arguments TODO)"
                 }

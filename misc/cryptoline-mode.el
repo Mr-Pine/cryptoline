@@ -6,7 +6,7 @@
              ;; (x-types '("uint64" "uint128"))
              (x-constants '("true" "main"))
              ;; (x-events '("at_rot_target" "at_target" "attach"))
-             (x-keywords '("proc" "call" "ulimbs" "slimbs" "limbs"
+             (x-keywords '("proc" "call" "inline" "inlinespec" "ulimbs" "slimbs" "limbs"
                            "prove" "with" "all" "cuts" "assumes" "ghosts" "precondition"
                            "assert" "assume" "smt2cas" "record_fact"
                            "const"
