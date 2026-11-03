@@ -1,0 +1,20 @@
+main:
+# %rdi = 0x1
+# %rsi = 0x7fffffffd4a8
+# %rdx = 0x7fffffffd4b8
+# %rcx = 0x555555557df8
+# %r8  = 0x0
+# %r9  = 0x7ffff7fca380
+# %rsp = 0x7fffffffd388
+	#! -> SP = 0x7fffffffd388
+	sub    $0x8,%rsp
+	movq   $0x0,(%rsp)                              #! EA = Lcfa_0x008
+	vpbroadcastq (%rsp),%ymm0                       #! EA = L0x008; Value = 0x0000000000000000 0x00007ffff7c2a1ca 0x00007fffffffd3d0 0x00007fffffffd4a8
+	movq   $0x42,(%rsp)                             #! EA = Lcfa_0x008
+	movddup (%rsp),%xmm0                            #! EA = Lcfa_0x008; Value = 0x0000000000000042 0x00007ffff7c2a1ca
+	sub    $0x20,%rsp
+	vmovdqa %ymm0,(%rsp)                            #! EA = Lcfa_0x028
+	mov    (%rsp),%rax                              #! EA = Lcfa_0x028; Value = 0x0000000000000042
+	add    $0x28,%rsp
+	#! <- SP = 0x7fffffffd388
+	#ret
